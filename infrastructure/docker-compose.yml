@@ -1,0 +1,120 @@
+version: '3.8'
+
+# ==============================================================================
+# MotorGuard — Local Gateway Docker Compose Infrastructure
+# Phase 0: Establishes supporting broker and database containers.
+# Application services (backend, frontend, simulator) are documented and
+# commented out until their respective implementation phases.
+# ==============================================================================
+
+networks:
+  motorguard-net:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
+  mosquitto_data:
+    driver: local
+  mosquitto_log:
+    driver: local
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Eclipse Mosquitto MQTT Message Broker
+  # ----------------------------------------------------------------------------
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: motorguard-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - motorguard-net
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/broker/version' -C 1 -i healthcheck -W 3 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ----------------------------------------------------------------------------
+  # 2. MongoDB Document Database
+  # ----------------------------------------------------------------------------
+  mongodb:
+    image: mongo:7.0
+    container_name: motorguard-mongodb
+    restart: unless-stopped
+    ports:
+      # Bound to localhost interface for local development security
+      - "127.0.0.1:27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: motorguard_db
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - motorguard-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # 3. FastAPI Backend API & Ingestion Service (PLANNED: Phase 1)
+  # ----------------------------------------------------------------------------
+  # backend:
+  #   build:
+  #     context: ../backend
+  #     dockerfile: Dockerfile
+  #   container_name: motorguard-backend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   env_file:
+  #     - ../.env
+  #   depends_on:
+  #     mongodb:
+  #       condition: service_healthy
+  #     mosquitto:
+  #       condition: service_healthy
+  #   networks:
+  #     - motorguard-net
+
+  # ----------------------------------------------------------------------------
+  # 4. Virtual Motor Simulator (PLANNED: Phase 2)
+  # ----------------------------------------------------------------------------
+  # simulator:
+  #   build:
+  #     context: ../simulator
+  #     dockerfile: Dockerfile
+  #   container_name: motorguard-simulator
+  #   restart: unless-stopped
+  #   env_file:
+  #     - ../.env
+  #   depends_on:
+  #     mosquitto:
+  #       condition: service_healthy
+  #   networks:
+  #     - motorguard-net
+
+  # ----------------------------------------------------------------------------
+  # 5. React Dashboard Client (PLANNED: Phase 3)
+  # ----------------------------------------------------------------------------
+  # frontend:
+  #   build:
+  #     context: ../frontend
+  #     dockerfile: Dockerfile
+  #   container_name: motorguard-frontend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - motorguard-net

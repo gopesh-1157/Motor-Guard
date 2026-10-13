@@ -1,0 +1,87 @@
+# ==============================================================================
+# MotorGuard — Multi-Runtime Git Ignore
+# ==============================================================================
+
+# --- Environment & Security Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+
+# --- Python & Virtual Environments ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+env/
+
+# --- Node.js & Frontend ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# --- Embedded Firmware & Arduino Artifacts ---
+*.hex
+*.bin
+*.elf
+*.map
+.pio/
+.pioenvs/
+
+# --- Local Docker & Storage Data ---
+infrastructure/mosquitto/data/*
+!infrastructure/mosquitto/data/.gitkeep
+infrastructure/mosquitto/log/*
+!infrastructure/mosquitto/log/.gitkeep
+
+# --- Operating System & Editor Files ---
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+*.log
+
+# --- Local Databases & Backups ---
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*backup*
+scratch/

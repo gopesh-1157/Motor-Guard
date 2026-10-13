@@ -1,0 +1,220 @@
+"""
+MotorGuard — Edge Virtual Motor Simulator REST API
+
+Provides deterministic simulation controls to inject warning/critical conditions,
+sensor disconnection, or test sequences into the ingestion and rules pipeline.
+Completely compliant with the v1.0.0 Telemetry Contract Specification.
+"""
+
+import uuid
+import logging
+from datetime import datetime, timezone
+from typing import Optional, Literal, Dict, Any, List
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Depends
+
+from backend.app.db.mongodb import db_manager
+from backend.app.schemas.telemetry import TelemetryMessage
+from backend.app.services.telemetry_ingestion import TelemetryIngestionService
+from backend.app.services.alert_service import AlertService
+from backend.app.api.v1.endpoints.websocket import ws_manager
+from backend.app.mqtt.subscriber import mqtt_subscriber
+
+logger = logging.getLogger("motorguard.simulator_api")
+router = APIRouter()
+
+# Global sequence counter and state
+_simulator_seq = 1000
+_active_profile = "healthy"
+
+
+class SimulatorInjectRequest(BaseModel):
+    motor_id: str = Field(default="MTR-775-002", description="Target motor ID")
+    device_id: str = Field(default="sim-node-002", description="Assigned virtual device ID")
+    condition: Literal[
+        "healthy",
+        "warning_temp",
+        "critical_vib",
+        "overload_current",
+        "sensor_disconnected",
+    ] = Field(default="healthy", description="Simulation condition profile")
+    custom_temp: Optional[float] = Field(default=None, description="Override temperature in °C")
+    custom_current: Optional[float] = Field(default=None, description="Override current in A")
+    custom_vibration: Optional[float] = Field(default=None, description="Override vibration RMS in g")
+
+
+class SimulatorStatusResponse(BaseModel):
+    active_profile: str
+    available_profiles: List[str]
+    virtual_devices: List[Dict[str, str]]
+    telemetry_schema_version: str
+
+
+@router.get("/status", response_model=SimulatorStatusResponse)
+async def get_simulator_status():
+    """Return current simulator configuration and available fault injection profiles."""
+    return SimulatorStatusResponse(
+        active_profile=_active_profile,
+        available_profiles=[
+            "healthy",
+            "warning_temp",
+            "critical_vib",
+            "overload_current",
+            "sensor_disconnected",
+        ],
+        virtual_devices=[
+            {"motor_id": "MTR-775-001", "device_id": "sim-node-001", "profile": "healthy"},
+            {"motor_id": "MTR-775-002", "device_id": "sim-node-002", "profile": "warning_temp"},
+            {"motor_id": "MTR-775-003", "device_id": "sim-node-003", "profile": "critical_vib"},
+        ],
+        telemetry_schema_version="1.0.0",
+    )
+
+
+async def _process_and_broadcast_payload(payload: dict) -> bool:
+    """Ingest into MongoDB, evaluate safety alert rules, and broadcast to live WebSocket clients."""
+    # 1. MongoDB Ingestion if database is available
+    if db_manager.db is not None:
+        try:
+            ingestion_svc = TelemetryIngestionService(db_manager.db)
+            await ingestion_svc.ingest(payload)
+        except Exception as e:
+            logger.warning("MongoDB ingestion error during simulation injection: %s", e)
+
+        # 2. Safety rules evaluation
+        try:
+            alert_svc = AlertService(db_manager.db)
+            alerts = await alert_svc.evaluate_telemetry_for_alerts(payload)
+            for a in alerts:
+                await ws_manager.broadcast({
+                    "type": "alert",
+                    "data": a.model_dump(mode="json"),
+                })
+        except Exception as e:
+            logger.warning("Alert evaluation error during simulation injection: %s", e)
+
+    # 3. Live WebSocket broadcast
+    await ws_manager.broadcast({"type": "telemetry", "data": payload})
+
+    # 4. MQTT Broker forward if connected
+    if mqtt_subscriber.is_connected and mqtt_subscriber._client:
+        try:
+            import json
+            topic = f"motorguard/v1/{payload.get('device_id')}/telemetry"
+            mqtt_subscriber._client.publish(topic, json.dumps(payload), qos=1)
+        except Exception as e:
+            logger.debug("Could not publish simulated frame to MQTT: %s", e)
+
+    return True
+
+
+@router.post("/inject")
+async def inject_fault_condition(req: SimulatorInjectRequest):
+    """
+    Inject a simulated condition (healthy, warning, critical, or sensor fault)
+    generating a compliant v1.0.0 telemetry packet through the pipeline.
+    """
+    global _simulator_seq, _active_profile
+    _simulator_seq += 1
+    _active_profile = req.condition
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+    # Default profile values
+    temp_val: Optional[float] = 38.5
+    temp_stat = "OK"
+    curr_val: Optional[float] = 2.15
+    curr_stat = "OK"
+    vib_val: Optional[float] = 0.082
+    vib_stat = "OK"
+    health_status = "healthy"
+    probs = {"healthy": 0.95, "warning": 0.04, "critical": 0.01}
+    confidence = 0.95
+
+    if req.condition == "warning_temp":
+        temp_val = 55.4
+        curr_val = 3.25
+        vib_val = 0.125
+        health_status = "warning"
+        probs = {"healthy": 0.08, "warning": 0.88, "critical": 0.04}
+        confidence = 0.88
+    elif req.condition == "critical_vib":
+        temp_val = 46.2
+        curr_val = 3.85
+        vib_val = 0.895
+        health_status = "critical"
+        probs = {"healthy": 0.02, "warning": 0.08, "critical": 0.90}
+        confidence = 0.90
+    elif req.condition == "overload_current":
+        temp_val = 62.0
+        curr_val = 4.65
+        vib_val = 0.350
+        health_status = "critical"
+        probs = {"healthy": 0.01, "warning": 0.09, "critical": 0.90}
+        confidence = 0.90
+    elif req.condition == "sensor_disconnected":
+        temp_val = None
+        temp_stat = "DISCONNECTED"
+        curr_val = 2.10
+        vib_val = 0.075
+        health_status = "warning"
+        probs = {"healthy": 0.30, "warning": 0.65, "critical": 0.05}
+        confidence = 0.65
+
+    # Apply any custom overrides
+    if req.custom_temp is not None:
+        temp_val = req.custom_temp
+    if req.custom_current is not None:
+        curr_val = req.custom_current
+    if req.custom_vibration is not None:
+        vib_val = req.custom_vibration
+
+    payload = {
+        "schema_version": "1.0.0",
+        "event_id": str(uuid.uuid4()),
+        "device_id": req.device_id,
+        "motor_id": req.motor_id,
+        "source": "simulator",
+        "seq": _simulator_seq,
+        "timestamp": now_iso,
+        "sensors": {
+            "temperature_c": temp_val,
+            "current_a": curr_val,
+            "vibration_g_rms": vib_val,
+        },
+        "sensor_status": {
+            "temperature": temp_stat,
+            "current": curr_stat,
+            "vibration": vib_stat,
+        },
+        "inference": {
+            "status": "PREDICTED",
+            "health_status": health_status,
+            "confidence": confidence,
+            "probabilities": probs,
+            "model_version": "ei-motoguard-v1.0.1",
+            "inference_time_ms": 6,
+        },
+        "diagnostics": {
+            "wifi_rssi_dbm": -58,
+            "free_heap_bytes": 182400,
+            "uptime_seconds": _simulator_seq * 2,
+        },
+    }
+
+    # Validate with Pydantic model
+    validated = TelemetryMessage(**payload)
+    validated_dict = validated.model_dump()
+
+    await _process_and_broadcast_payload(validated_dict)
+
+    return {
+        "status": "success",
+        "condition": req.condition,
+        "motor_id": req.motor_id,
+        "device_id": req.device_id,
+        "event_id": validated_dict["event_id"],
+        "health_status": health_status,
+        "sensors": validated_dict["sensors"],
+        "timestamp": now_iso,
+    }
