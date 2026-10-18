@@ -4229,3 +4229,522 @@ html, body {
   }
 }
 
+/* ==============================================================================
+   Landing View — Industrial SCADA Showcase & Public Portal
+   Compliant with Web Interface Guidelines (focus-visible, contrast, reduced-motion)
+   ============================================================================== */
+
+.landing-container {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  max-width: 1320px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 16px 8px 48px 8px;
+}
+
+/* 1. Hero Section */
+.landing-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 40px 36px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.98) 100%);
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(229, 138, 38, 0.08);
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme="dark"] .landing-hero {
+  background: linear-gradient(135deg, rgba(23, 27, 33, 0.95) 0%, rgba(15, 18, 22, 0.98) 100%);
+  border-color: var(--border-main);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(79, 123, 242, 0.15);
+}
+
+.landing-hero::before {
+  content: '';
+  position: absolute;
+  top: -120px;
+  right: -100px;
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(229, 138, 38, 0.12) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .landing-hero::before {
+  background: radial-gradient(circle, rgba(79, 123, 242, 0.15) 0%, transparent 70%);
+}
+
+.landing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--brand-primary-light);
+  border: 1px solid rgba(229, 138, 38, 0.3);
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: var(--brand-primary);
+  text-transform: uppercase;
+}
+
+[data-theme="dark"] .landing-badge {
+  border-color: rgba(79, 123, 242, 0.35);
+  color: #818cf8;
+}
+
+.landing-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-primary);
+  box-shadow: 0 0 8px var(--brand-primary);
+  animation: pulseBadgeDot 2s infinite ease-in-out;
+}
+
+@keyframes pulseBadgeDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.landing-title {
+  font-size: clamp(28px, 3.5vw, 42px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+  margin: 0;
+  text-wrap: balance;
+}
+
+.landing-title span {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, #d97706 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+[data-theme="dark"] .landing-title span {
+  background: linear-gradient(135deg, #60a5fa 0%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.landing-subtitle {
+  font-size: clamp(14px, 1.2vw, 16px);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 820px;
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.btn-primary-glow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 22px;
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-hover) 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px var(--brand-primary-ring);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.btn-primary-glow:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--brand-primary-ring);
+}
+
+.btn-primary-glow:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.badge-critical-counter {
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: var(--status-critical-bg);
+  border: 1px solid var(--status-critical-border);
+  color: var(--status-critical);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.btn-rbac-gate {
+  border-color: rgba(229, 138, 38, 0.4);
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+}
+
+[data-theme="dark"] .btn-rbac-gate {
+  border-color: rgba(79, 123, 242, 0.4);
+  background: rgba(79, 123, 242, 0.1);
+  color: #93c5fd;
+}
+
+/* 2. Live Plant Telemetry Bar */
+.landing-kpi-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="dark"] .landing-kpi-bar {
+  background: var(--bg-panel);
+  border-color: var(--border-main);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.kpi-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.kpi-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.kpi-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.kpi-value.text-healthy {
+  color: var(--status-healthy);
+}
+
+.kpi-value.text-critical {
+  color: var(--status-critical);
+}
+
+.kpi-value.text-cyan {
+  color: #0284c7;
+}
+
+[data-theme="dark"] .kpi-value.text-cyan {
+  color: #38bdf8;
+}
+
+.kpi-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.kpi-divider {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .landing-kpi-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .landing-kpi-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 3. Section Headers */
+.landing-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.section-header-centered {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.section-headline {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+  margin: 0;
+  text-wrap: balance;
+}
+
+.section-subtext {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* 4. Industrial Architecture Blueprint */
+.blueprint-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .blueprint-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .blueprint-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 500px) {
+  .blueprint-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.blueprint-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-md);
+  padding: 20px 18px;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  position: relative;
+}
+
+.blueprint-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.blueprint-card.highlight-card {
+  border-color: rgba(229, 138, 38, 0.4);
+  background: linear-gradient(180deg, var(--bg-card) 0%, var(--brand-primary-light) 100%);
+}
+
+[data-theme="dark"] .blueprint-card.highlight-card {
+  border-color: rgba(79, 123, 242, 0.4);
+  background: linear-gradient(180deg, var(--bg-card) 0%, rgba(79, 123, 242, 0.08) 100%);
+}
+
+.blueprint-step {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--brand-primary);
+  background: var(--brand-primary-light);
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.5px;
+}
+
+[data-theme="dark"] .blueprint-step {
+  color: #818cf8;
+  background: rgba(129, 140, 248, 0.12);
+}
+
+.blueprint-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.blueprint-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin: 0;
+  flex-grow: 1;
+}
+
+.blueprint-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px dashed var(--border-main);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+/* 5. Role-Based Workspaces */
+.roles-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .roles-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.role-portal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  color: inherit;
+  font-family: inherit;
+}
+
+.role-portal-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--brand-primary);
+  box-shadow: var(--shadow-lg);
+}
+
+.role-portal-card:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.role-portal-card.featured {
+  border-color: rgba(220, 38, 38, 0.3);
+  background: linear-gradient(180deg, var(--bg-card) 0%, rgba(220, 38, 38, 0.03) 100%);
+}
+
+.role-portal-card.featured:hover {
+  border-color: var(--status-critical);
+  box-shadow: 0 12px 28px -4px rgba(220, 38, 38, 0.15);
+}
+
+.role-portal-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.role-portal-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.role-portal-badge.featured {
+  color: var(--status-critical);
+}
+
+.role-portal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.role-portal-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin: 0;
+  flex-grow: 1;
+}
+
+.role-portal-cta {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-primary);
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-theme="dark"] .role-portal-cta {
+  color: #60a5fa;
+}
+
+.role-portal-card.featured .role-portal-cta {
+  color: var(--status-critical);
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .landing-badge-dot {
+    animation: none;
+  }
+  .btn-primary-glow,
+  .btn-secondary,
+  .blueprint-card,
+  .role-portal-card {
+    transition: none;
+    transform: none !important;
+  }
+}
+

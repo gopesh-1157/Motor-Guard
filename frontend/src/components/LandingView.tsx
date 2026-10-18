@@ -33,18 +33,21 @@ export const LandingView: FC<LandingViewProps> = ({
 
         <div className="landing-actions">
           <button
+            type="button"
             className="btn-primary-glow"
             onClick={() => onNavigate('fleet')}
           >
             Launch Fleet SCADA →
           </button>
           <button
+            type="button"
             className="btn-secondary"
             onClick={() => onNavigate('twin')}
           >
-            🌐 3D Digital Twin (Three.js)
+            <span aria-hidden="true">🌐</span> 3D Digital Twin (Three.js)
           </button>
           <button
+            type="button"
             className="btn-secondary"
             onClick={() => onNavigate('manager')}
           >
@@ -54,6 +57,7 @@ export const LandingView: FC<LandingViewProps> = ({
             )}
           </button>
           <button
+            type="button"
             className="btn-secondary"
             onClick={() => onNavigate('technician')}
           >
@@ -61,29 +65,30 @@ export const LandingView: FC<LandingViewProps> = ({
           </button>
           {onOpenLogin && (
             <button
+              type="button"
               className="btn-secondary btn-rbac-gate"
               onClick={onOpenLogin}
             >
-              🔒 RBAC Security Gate
+              <span aria-hidden="true">🔒</span> RBAC Security Gate
             </button>
           )}
         </div>
       </section>
 
       {/* Live Plant Telemetry Bar */}
-      <section className="landing-kpi-bar">
+      <section className="landing-kpi-bar" aria-label="Plant Real-time KPI Summary">
         <div className="kpi-item">
           <span className="kpi-label">Fleet Asset Pool</span>
           <span className="kpi-value">{stats.totalMotors} Motors</span>
           <span className="kpi-sub">Continuous Ingestion</span>
         </div>
-        <div className="kpi-divider" />
+        <div className="kpi-divider" aria-hidden="true" />
         <div className="kpi-item">
           <span className="kpi-label">Operational Health</span>
           <span className="kpi-value text-healthy">{stats.healthyCount} Optimal</span>
           <span className="kpi-sub">{stats.warningCount} Warnings Flagged</span>
         </div>
-        <div className="kpi-divider" />
+        <div className="kpi-divider" aria-hidden="true" />
         <div className="kpi-item">
           <span className="kpi-label">Active Critical Alarms</span>
           <span className={`kpi-value ${criticalAlertsCount > 0 ? 'text-critical' : 'text-healthy'}`}>
@@ -91,7 +96,7 @@ export const LandingView: FC<LandingViewProps> = ({
           </span>
           <span className="kpi-sub">Immediate Action Required</span>
         </div>
-        <div className="kpi-divider" />
+        <div className="kpi-divider" aria-hidden="true" />
         <div className="kpi-item">
           <span className="kpi-label">Telemetry Bus Throughput</span>
           <span className="kpi-value text-cyan">{stats.totalMessages} Events</span>
@@ -100,9 +105,9 @@ export const LandingView: FC<LandingViewProps> = ({
       </section>
 
       {/* Industrial Architecture Blueprint */}
-      <section className="landing-section">
+      <section className="landing-section" aria-labelledby="architecture-blueprint-heading">
         <div className="section-header-centered">
-          <h2 className="section-headline">Deterministic 5-Tier Industrial Architecture</h2>
+          <h2 id="architecture-blueprint-heading" className="section-headline">Deterministic 5-Tier Industrial Architecture</h2>
           <p className="section-subtext">
             Engineered for zero-loss factory local operation with edge-first resilience and strict hardware isolation.
           </p>
@@ -110,7 +115,7 @@ export const LandingView: FC<LandingViewProps> = ({
 
         <div className="blueprint-grid">
           <div className="blueprint-card">
-            <div className="blueprint-step">01</div>
+            <div className="blueprint-step" aria-hidden="true">01</div>
             <h3 className="blueprint-title">Physical Sensor Layer</h3>
             <p className="blueprint-desc">
               ADXL345 dynamic 3-axis vibration RMS, ACS712 20A armature current with boot zero-calibration,
@@ -120,7 +125,7 @@ export const LandingView: FC<LandingViewProps> = ({
           </div>
 
           <div className="blueprint-card">
-            <div className="blueprint-step">02</div>
+            <div className="blueprint-step" aria-hidden="true">02</div>
             <h3 className="blueprint-title">On-Device TinyML</h3>
             <p className="blueprint-desc">
               Edge Impulse EON-compiled neural classifier running on-chip in &lt;10ms. Real-time probability
@@ -130,7 +135,7 @@ export const LandingView: FC<LandingViewProps> = ({
           </div>
 
           <div className="blueprint-card">
-            <div className="blueprint-step">03</div>
+            <div className="blueprint-step" aria-hidden="true">03</div>
             <h3 className="blueprint-title">MQTT Edge Bus</h3>
             <p className="blueprint-desc">
               Local Eclipse Mosquitto message bus running QoS 1 telemetry streaming, Last Will and Testament (LWT)
@@ -140,7 +145,7 @@ export const LandingView: FC<LandingViewProps> = ({
           </div>
 
           <div className="blueprint-card">
-            <div className="blueprint-step">04</div>
+            <div className="blueprint-step" aria-hidden="true">04</div>
             <h3 className="blueprint-title">Gateway Persistence</h3>
             <p className="blueprint-desc">
               Local MongoDB 7.0 document store with compound unique indexes for idempotent event deduplication,
@@ -150,7 +155,7 @@ export const LandingView: FC<LandingViewProps> = ({
           </div>
 
           <div className="blueprint-card highlight-card">
-            <div className="blueprint-step">05</div>
+            <div className="blueprint-step" aria-hidden="true">05</div>
             <h3 className="blueprint-title">Closed-Loop Work Orders</h3>
             <p className="blueprint-desc">
               When a critical fault triggers, Operations Managers immediately assign the incident to specific
@@ -162,17 +167,21 @@ export const LandingView: FC<LandingViewProps> = ({
       </section>
 
       {/* Interactive Role Portals */}
-      <section className="landing-section">
+      <section className="landing-section" aria-labelledby="role-workspaces-heading">
         <div className="section-header-centered">
-          <h2 className="section-headline">Role-Based Operational Workspaces</h2>
+          <h2 id="role-workspaces-heading" className="section-headline">Role-Based Operational Workspaces</h2>
           <p className="section-subtext">
             Tailored interfaces designed for plant operators, operations managers, and maintenance technicians.
           </p>
         </div>
 
         <div className="roles-grid">
-          <div className="role-portal-card" onClick={() => onNavigate('fleet')}>
-            <div className="role-portal-icon">📊</div>
+          <button
+            type="button"
+            className="role-portal-card"
+            onClick={() => onNavigate('fleet')}
+          >
+            <div className="role-portal-icon" aria-hidden="true">📊</div>
             <div className="role-portal-badge">OPERATOR VIEW</div>
             <h3 className="role-portal-title">Live SCADA Fleet Monitor</h3>
             <p className="role-portal-desc">
@@ -180,10 +189,14 @@ export const LandingView: FC<LandingViewProps> = ({
               and connection heartbeat states.
             </p>
             <div className="role-portal-cta">Open Fleet Monitor →</div>
-          </div>
+          </button>
 
-          <div className="role-portal-card featured" onClick={() => onNavigate('manager')}>
-            <div className="role-portal-icon">🛡️</div>
+          <button
+            type="button"
+            className="role-portal-card featured"
+            onClick={() => onNavigate('manager')}
+          >
+            <div className="role-portal-icon" aria-hidden="true">🛡️</div>
             <div className="role-portal-badge featured">OPERATIONS MANAGER</div>
             <h3 className="role-portal-title">Critical Incident Dispatch Hub</h3>
             <p className="role-portal-desc">
@@ -191,10 +204,14 @@ export const LandingView: FC<LandingViewProps> = ({
               technicians with priority instructions.
             </p>
             <div className="role-portal-cta">Launch Incident Dispatch →</div>
-          </div>
+          </button>
 
-          <div className="role-portal-card" onClick={() => onNavigate('technician')}>
-            <div className="role-portal-icon">🔧</div>
+          <button
+            type="button"
+            className="role-portal-card"
+            onClick={() => onNavigate('technician')}
+          >
+            <div className="role-portal-icon" aria-hidden="true">🔧</div>
             <div className="role-portal-badge">TECHNICIAN VIEW</div>
             <h3 className="role-portal-title">Field Technician Workbench</h3>
             <p className="role-portal-desc">
@@ -202,7 +219,7 @@ export const LandingView: FC<LandingViewProps> = ({
               and resolve motor alarms.
             </p>
             <div className="role-portal-cta">Open Technician Portal →</div>
-          </div>
+          </button>
         </div>
       </section>
     </div>
