@@ -21,10 +21,16 @@
 #include <Adafruit_ADXL345_U.h>
 #include <DHT.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WebServer.h>
 #include <PubSubClient.h>
 #include <time.h>
 #include <math.h>
+
+// Check for local untracked secrets header (ignored in git)
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#endif
 
 // ============================================================
 // EDGE IMPULSE TOGGLE & INFERENCE DEFINITIONS
@@ -36,23 +42,36 @@
 #endif
 
 // ============================================================
-// WI-FI ACCESS POINT (SoftAP) CONFIGURATION
+// NETWORK & MQTT BROKER CONFIGURATION
 // ============================================================
-const char* AP_SSID       = "MotorGuard-ESP32-AP";
-const char* AP_PASSWORD   = "MotorGuard123";
+#ifndef USE_CLOUD_MQTT
+  #define USE_CLOUD_MQTT 0
+#endif
 
-// Optional MQTT Broker connection (if laptop connects to AP as client)
-const char* MQTT_BROKER   = "192.168.4.2";
-const int   MQTT_PORT     = 1883;
-const char* MQTT_USER     = "";
-const char* MQTT_PASS     = "";
+#if USE_CLOUD_MQTT
+  // Production Cloud Broker over MQTTS TLS (Port 8883)
+  const char* MQTT_BROKER   = CLOUD_MQTT_BROKER;
+  const int   MQTT_PORT     = CLOUD_MQTT_PORT;
+  const char* MQTT_USER     = CLOUD_MQTT_USER;
+  const char* MQTT_PASS     = CLOUD_MQTT_PASS;
+  const char* DEVICE_ID     = CLOUD_DEVICE_ID;
+  const char* FIRMWARE_VER  = "1.0.1-CLOUD-TLS";
+  WiFiClientSecure espClient;
+#else
+  // Local Development SoftAP Mode (192.168.4.2:1883)
+  const char* AP_SSID       = "MotorGuard-ESP32-AP";
+  const char* AP_PASSWORD   = "MotorGuard123";
+  const char* MQTT_BROKER   = "192.168.4.2";
+  const int   MQTT_PORT     = 1883;
+  const char* MQTT_USER     = "";
+  const char* MQTT_PASS     = "";
+  const char* DEVICE_ID     = "esp32-node-001";
+  const char* FIRMWARE_VER  = "1.0.1-AP";
+  WiFiClient espClient;
+#endif
 
-// Identity Contract
-const char* DEVICE_ID     = "esp32-node-001";
 const char* MOTOR_ID      = "MTR-775-001";
-const char* FIRMWARE_VER  = "1.0.1-AP";
 
-WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 WebServer server(80);
 
@@ -781,11 +800,35 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  // 1. Network Initialization (Cloud Station MQTTS or Local SoftAP)
+#if USE_CLOUD_MQTT
+  Serial.println("\n========================================");
+  Serial.println("  MOTORGUARD ESP32 SECURE CLOUD MQTTS   ");
+  Serial.println("========================================");
+  Serial.printf("[Wi-Fi] Connecting to station '%s'...\n", STA_WIFI_SSID);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(STA_WIFI_SSID, STA_WIFI_PASSWORD);
+  int wifiAttempts = 0;
+  while (WiFi.status() != WL_CONNECTED && wifiAttempts < 30) {
+    delay(500);
+    Serial.print(".");
+    wifiAttempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\n[Wi-Fi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.println("\n[Wi-Fi] WARNING: Failed to connect to station Wi-Fi.");
+  }
+
+  // Configure ISRG Root X1 CA for verified TLS broker handshake
+  #ifdef ISRG_ROOT_X1_CA
+    espClient.setCACert(ISRG_ROOT_X1_CA);
+    Serial.println("[TLS] ISRG Root X1 CA installed (verified MQTTS handshake).");
+  #endif
+#else
   Serial.println("\n========================================");
   Serial.println("  MOTORGUARD ESP32 STANDALONE ACCESS POINT ");
   Serial.println("========================================");
-
-  // 1. Start ESP32 SoftAP (Broadcasts its own Wi-Fi)
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASSWORD);
   IPAddress IP = WiFi.softAPIP();
@@ -795,6 +838,7 @@ void setup() {
   Serial.printf("       Password: %s\n", AP_PASSWORD);
   Serial.printf("       AP IP:    %s\n", IP.toString().c_str());
   Serial.printf("       Dashboard: http://%s\n", IP.toString().c_str());
+#endif
 
   // 2. Start Embedded Web Server
   server.on("/", handleRoot);

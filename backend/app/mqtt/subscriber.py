@@ -10,6 +10,7 @@ TelemetryIngestionService.
 import asyncio
 import json
 import logging
+import ssl
 from typing import Optional, Callable, Awaitable, Any
 
 import paho.mqtt.client as mqtt
@@ -62,16 +63,33 @@ class MQTTSubscriber:
         self._loop = loop or asyncio.get_event_loop()
 
         client_id = settings.MQTT_CLIENT_ID
+        transport = "websockets" if settings.MQTT_TRANSPORT.lower() in ("websockets", "ws", "wss") else "tcp"
         self._client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=client_id,
             protocol=mqtt.MQTTv311,
             clean_session=True,
+            transport=transport,
         )
 
         # Set credentials if configured
         if settings.MQTT_USERNAME:
             self._client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD or None)
+
+        # Configure TLS when requested
+        if settings.MQTT_USE_TLS:
+            ssl_ctx = ssl.create_default_context(cafile=settings.MQTT_TLS_CA_CERT)
+            ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            if settings.MQTT_TLS_INSECURE:
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = ssl.CERT_NONE
+                self._client.tls_set_context(ssl_ctx)
+                self._client.tls_insecure_set(True)
+            else:
+                ssl_ctx.check_hostname = True
+                ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+                self._client.tls_set_context(ssl_ctx)
+            logger.info("MQTTS TLS context configured with TLS 1.2+ negotiation (insecure_override=%s)", settings.MQTT_TLS_INSECURE)
 
         # Register callbacks
         self._client.on_connect = self._on_connect

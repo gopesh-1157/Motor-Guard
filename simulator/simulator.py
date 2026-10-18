@@ -27,6 +27,9 @@ MQTT_HOST = os.getenv("MQTT_BROKER_HOST", "127.0.0.1")
 MQTT_PORT = int(os.getenv("MQTT_BROKER_PORT", "1883"))
 MQTT_USER = os.getenv("MQTT_USERNAME", "motorguard_gateway")
 MQTT_PASS = os.getenv("MQTT_PASSWORD", "")
+MQTT_USE_TLS = os.getenv("MQTT_USE_TLS", "false").lower() in ("true", "1") or MQTT_PORT == 8883
+MQTT_TLS_INSECURE = os.getenv("MQTT_TLS_INSECURE", "false").lower() in ("true", "1")
+MQTT_TLS_CA_CERT = os.getenv("MQTT_TLS_CA_CERT", None)
 PUBLISH_INTERVAL_SEC = float(os.getenv("SIMULATOR_INTERVAL_SEC", "1.5"))
 
 
@@ -139,6 +142,21 @@ def run_simulator():
 
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
+
+    if MQTT_USE_TLS:
+        import ssl
+        ssl_ctx = ssl.create_default_context(cafile=MQTT_TLS_CA_CERT)
+        ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        if MQTT_TLS_INSECURE:
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            client.tls_set_context(ssl_ctx)
+            client.tls_insecure_set(True)
+        else:
+            ssl_ctx.check_hostname = True
+            ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+            client.tls_set_context(ssl_ctx)
+        logger.info("Simulator MQTTS TLS context configured (TLS 1.2+)")
 
     simulate_hw_twin = os.getenv("SIMULATE_HARDWARE_NODE", "false").lower() in ("true", "1")
     motors = [

@@ -10,6 +10,11 @@
 *.key
 *.crt
 *.pfx
+secrets.h
+firmware/secrets.h
+firmware/**/secrets.h
+!secrets.h.example
+!firmware/secrets.h.example
 
 # --- Python & Virtual Environments ---
 __pycache__/

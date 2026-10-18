@@ -34,6 +34,11 @@ TARGET_PORT = os.getenv("SERIAL_PORT", "COM7")
 API_INGEST_URL = os.getenv("INGEST_URL", "http://127.0.0.1:8000/api/v1/telemetry/ingest")
 MQTT_HOST = os.getenv("MQTT_BROKER_HOST", "127.0.0.1")
 MQTT_PORT = int(os.getenv("MQTT_BROKER_PORT", "1883"))
+MQTT_USER = os.getenv("MQTT_USERNAME", "motorguard_gateway")
+MQTT_PASS = os.getenv("MQTT_PASSWORD", "")
+MQTT_USE_TLS = os.getenv("MQTT_USE_TLS", "false").lower() in ("true", "1") or MQTT_PORT == 8883
+MQTT_TLS_INSECURE = os.getenv("MQTT_TLS_INSECURE", "false").lower() in ("true", "1")
+MQTT_TLS_CA_CERT = os.getenv("MQTT_TLS_CA_CERT", None)
 
 SAMPLE_REGEX = re.compile(
     r"\[SAMPLE #(\d+)\] T:\s*([\d\.-]+|nan)\s*C\s*\|\s*I:\s*([\d\.-]+|nan)\s*A\s*\|\s*Vib:\s*([\d\.-]+|nan)\s*g\s*\|\s*AI:\s*(\w+)\s*\((\d+)%\)",
@@ -113,9 +118,24 @@ def run_bridge():
     if HAS_MQTT:
         try:
             mqtt_client = mqtt.Client()
+            if MQTT_USER:
+                mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+            if MQTT_USE_TLS:
+                import ssl
+                ssl_ctx = ssl.create_default_context(cafile=MQTT_TLS_CA_CERT)
+                ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+                if MQTT_TLS_INSECURE:
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = ssl.CERT_NONE
+                    mqtt_client.tls_set_context(ssl_ctx)
+                    mqtt_client.tls_insecure_set(True)
+                else:
+                    ssl_ctx.check_hostname = True
+                    ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+                    mqtt_client.tls_set_context(ssl_ctx)
             mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=30)
             mqtt_client.loop_start()
-            logger.info("Connected to MQTT broker at %s:%d", MQTT_HOST, MQTT_PORT)
+            logger.info("Connected to MQTT broker at %s:%d (TLS=%s)", MQTT_HOST, MQTT_PORT, MQTT_USE_TLS)
         except Exception as e:
             logger.warning("Could not connect to MQTT: %s (will use REST HTTP ingestion)", e)
             mqtt_client = None

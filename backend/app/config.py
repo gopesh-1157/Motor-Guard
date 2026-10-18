@@ -28,13 +28,19 @@ class Settings(BaseSettings):
     MONGO_DB_NAME: str = Field(default="motorguard_db", description="Database name")
     TELEMETRY_RETENTION_DAYS: int = Field(default=90, description="Retention horizon in days")
 
-    # --- Eclipse Mosquitto MQTT Broker ---
+    # --- Eclipse Mosquitto / Cloud MQTT Broker ---
     MQTT_BROKER_HOST: str = Field(default="127.0.0.1", description="MQTT broker host")
-    MQTT_BROKER_PORT: int = Field(default=1883, description="MQTT broker port")
+    MQTT_BROKER_PORT: int = Field(default=1883, description="MQTT broker port (1883 plain, 8883 TLS)")
     MQTT_USERNAME: str = Field(default="motorguard_gateway", description="MQTT broker username")
     MQTT_PASSWORD: str = Field(default="", description="MQTT broker password")
     MQTT_CLIENT_ID: str = Field(default="motorguard-fastapi-backend", description="MQTT client ID")
     MQTT_KEEPALIVE_SEC: int = Field(default=60, description="MQTT keepalive interval in seconds")
+
+    # Global Cloud MQTTS / TLS Controls
+    MQTT_USE_TLS: bool = Field(default=False, description="Enable TLS/SSL encryption for MQTT")
+    MQTT_TLS_CA_CERT: Optional[str] = Field(default=None, description="Path to custom CA certificate bundle file")
+    MQTT_TLS_INSECURE: bool = Field(default=False, description="Skip TLS certificate hostname verification (test only)")
+    MQTT_TRANSPORT: str = Field(default="tcp", description="'tcp' or 'websockets'")
 
     DEVICE_STALE_TIMEOUT_SEC: int = Field(default=15, description="Stale timeout in seconds")
     DEVICE_OFFLINE_TIMEOUT_SEC: int = Field(default=35, description="Offline timeout in seconds")
@@ -75,8 +81,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_requirements(self) -> "Settings":
-        # Sanitize runtime strings
-        self.ENVIRONMENT = self.ENVIRONMENT.strip().lower()
+        # Validate MQTT TLS configuration consistency
+        if self.MQTT_BROKER_PORT == 8883 and not self.MQTT_USE_TLS:
+            raise ValueError(
+                "Contradictory MQTT configuration: Port 8883 is designated for MQTTS and requires MQTT_USE_TLS=True."
+            )
+
+        is_cloud_broker = any(
+            cloud in self.MQTT_BROKER_HOST.lower()
+            for cloud in ("hivemq.cloud", "emqx.cloud", "amazonaws.com", "azure-devices.net")
+        )
+        if is_cloud_broker and not self.MQTT_USE_TLS:
+            raise ValueError(
+                f"Cloud MQTT broker '{self.MQTT_BROKER_HOST}' requires secure TLS (MQTT_USE_TLS=True)."
+            )
 
         if self.ENVIRONMENT == "production":
             if self.DEBUG:
@@ -91,6 +109,11 @@ class Settings(BaseSettings):
                 )
             if not self.MQTT_PASSWORD:
                 raise ValueError("MQTT_PASSWORD must be configured in production")
+            if self.MQTT_TLS_INSECURE:
+                raise ValueError("MQTT_TLS_INSECURE=True is strictly forbidden in production")
+            is_remote_broker = self.MQTT_BROKER_HOST not in ("127.0.0.1", "localhost", "0.0.0.0")
+            if is_remote_broker and not self.MQTT_USE_TLS:
+                raise ValueError("Remote MQTT broker connections in production must have MQTT_USE_TLS=True")
             if not self.cors_origins_list:
                 raise ValueError("Explicit CORS_ORIGINS must be configured in production (wildcard '*' is forbidden)")
             # Disable interactive docs in production by default
