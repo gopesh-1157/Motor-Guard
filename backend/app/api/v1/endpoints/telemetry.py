@@ -6,12 +6,24 @@ Provides query endpoints for retrieving persisted telemetry data from MongoDB.
 
 import logging
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from backend.app.db.mongodb import db_manager
 from backend.app.schemas.telemetry import TelemetryMessage
+from backend.app.schemas.user import UserOut
+from backend.app.core.auth import get_current_active_user
 
 logger = logging.getLogger("motorguard.api.telemetry")
 router = APIRouter()
+
+
+def sanitize_identifier(val: Optional[str]) -> Optional[str]:
+    """Sanitize parameters to prevent NoSQL operator injection in MongoDB queries."""
+    if not val:
+        return None
+    s = val.strip()
+    if s.startswith("$") or "{" in s or "}" in s:
+        raise HTTPException(status_code=400, detail="Invalid character in query parameter")
+    return s
 
 
 @router.post("/ingest", summary="Direct Telemetry Ingestion")
@@ -27,10 +39,14 @@ async def get_recent_telemetry(
     motor_id: Optional[str] = Query(None, description="Filter by motor_id"),
     device_id: Optional[str] = Query(None, description="Filter by device_id"),
     limit: int = Query(20, ge=1, le=200, description="Number of records to return"),
+    current_user: UserOut = Depends(get_current_active_user),
 ):
-    """Retrieve the most recent telemetry events, optionally filtered by motor or device."""
+    motor_id = sanitize_identifier(motor_id)
+    device_id = sanitize_identifier(device_id)
+
     if db_manager.db is None:
         raise HTTPException(status_code=503, detail="Database not available")
+
 
     collection = db_manager.db["telemetry"]
     query_filter = {}
@@ -38,6 +54,7 @@ async def get_recent_telemetry(
         query_filter["motor_id"] = motor_id
     if device_id:
         query_filter["device_id"] = device_id
+
 
     cursor = collection.find(
         query_filter,
@@ -62,8 +79,12 @@ async def get_historical_telemetry(
     start_time: Optional[str] = Query(None, description="ISO-8601 start timestamp"),
     end_time: Optional[str] = Query(None, description="ISO-8601 end timestamp"),
     limit: int = Query(500, ge=1, le=2000, description="Max points to return"),
+    current_user: UserOut = Depends(get_current_active_user),
 ):
-    """Query historical telemetry with timestamp range and source filtering."""
+    motor_id = sanitize_identifier(motor_id)
+    device_id = sanitize_identifier(device_id)
+    source = sanitize_identifier(source)
+
     if db_manager.db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
@@ -79,9 +100,9 @@ async def get_historical_telemetry(
     if start_time or end_time:
         time_filter: dict = {}
         if start_time:
-            time_filter["$gte"] = start_time
+            time_filter["$gte"] = sanitize_identifier(start_time)
         if end_time:
-            time_filter["$lte"] = end_time
+            time_filter["$lte"] = sanitize_identifier(end_time)
         query_filter["timestamp"] = time_filter
 
     cursor = collection.find(query_filter, {"_id": 0}).sort("timestamp", 1).limit(limit)
@@ -98,10 +119,15 @@ async def get_historical_telemetry(
 async def get_motor_aggregates(
     motor_id: str = Query(..., description="Target motor_id"),
     source: Optional[str] = Query(None, description="Filter by source"),
+    current_user: UserOut = Depends(get_current_active_user),
 ):
-    """Calculate statistical aggregates (min, max, mean) and health distribution for a motor."""
+    """Calculate statistical aggregates (min, max, mean) and health distribution for a motor (Requires authenticated user)."""
+    motor_id = sanitize_identifier(motor_id)
+    source = sanitize_identifier(source)
+
     if db_manager.db is None:
         raise HTTPException(status_code=503, detail="Database not available")
+
 
     collection = db_manager.db["telemetry"]
     match_stage: dict = {"motor_id": motor_id}
@@ -157,14 +183,19 @@ async def export_telemetry(
     source: Optional[str] = Query(None, description="Filter by source"),
     export_format: str = Query("csv", pattern="^(csv|json)$", description="Format: csv or json"),
     limit: int = Query(5000, ge=1, le=10000, description="Max records to export"),
+    current_user: UserOut = Depends(get_current_active_user),
 ):
-    """Export industrial telemetry records as CSV or JSON with full engineering metadata."""
+    """Export industrial telemetry records as CSV or JSON with full engineering metadata (Requires authenticated user)."""
     from fastapi.responses import Response
     import io
     import csv
 
+    motor_id = sanitize_identifier(motor_id)
+    source = sanitize_identifier(source)
+
     if db_manager.db is None:
         raise HTTPException(status_code=503, detail="Database not available")
+
 
     collection = db_manager.db["telemetry"]
     query_filter: dict = {}
@@ -247,8 +278,10 @@ async def export_telemetry(
 
 
 @router.get("/stats", summary="Get Ingestion Statistics")
-async def get_ingestion_stats():
-    """Return aggregate telemetry ingestion statistics."""
+async def get_ingestion_stats(
+    current_user: UserOut = Depends(get_current_active_user),
+):
+    """Return aggregate telemetry ingestion statistics (Requires authenticated user)."""
     if db_manager.db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
@@ -262,3 +295,4 @@ async def get_ingestion_stats():
         "hardware_events": hardware_count,
         "simulator_events": simulator_count,
     }
+

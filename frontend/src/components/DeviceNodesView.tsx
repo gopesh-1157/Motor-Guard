@@ -85,14 +85,20 @@ export const DeviceNodesView: FC<DeviceNodesViewProps> = ({
   const [assigningDevice, setAssigningDevice] = useState<EnrolledDevice | null>(null)
   const [targetMotorId, setTargetMotorId] = useState('')
 
-  const isAuthorized = !currentUser || currentUser.clearance_level >= 3
+  const isAuthorized = Boolean(
+    currentUser && (currentUser.role === 'Manager' || currentUser.role === 'Admin' || currentUser.clearance_level >= 3)
+  )
 
   // Load devices from backend API
   const fetchDevices = async () => {
     setIsLoading(true)
     setErrorMsg(null)
     try {
-      const res = await fetch('/api/v1/devices')
+      const token = localStorage.getItem('motorguard_auth_token')
+      const headers: Record<string, string> = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await fetch('/api/v1/devices', { headers })
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data) && data.length > 0) {
@@ -100,6 +106,7 @@ export const DeviceNodesView: FC<DeviceNodesViewProps> = ({
           return
         }
       }
+
     } catch {
       // Fallback to local devices
     } finally {

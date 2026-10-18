@@ -13,6 +13,7 @@ import { RBACLoginModal } from './components/RBACLoginModal'
 import { MotorDetailModal } from './components/MotorDetailModal'
 import { MotorManagementView } from './components/MotorManagementView'
 import { LiveMonitoringView } from './components/LiveMonitoringView'
+import { LandingView } from './components/LandingView'
 import { useTelemetry } from './hooks/useTelemetry'
 import type { MotorState, AlertItem, NavigationTab, UserProfile } from './types'
 
@@ -63,19 +64,14 @@ export default function App() {
   // Selected motor ID for analytics & 3D inspection
   const [selectedMotorId, setSelectedMotorId] = useState<string>('MTR-775-001')
 
-  // RBAC User Session state
-  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+  // RBAC User Session state (strictly defaults to null unless authenticated)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
-      const saved = localStorage.getItem('motorguard_auth_user')
-      if (saved) return JSON.parse(saved)
+      const savedUser = localStorage.getItem('motorguard_auth_user')
+      const savedToken = localStorage.getItem('motorguard_auth_token')
+      if (savedUser && savedToken) return JSON.parse(savedUser)
     } catch {}
-    return {
-      username: 'manager_alice',
-      role: 'Manager',
-      email: 'alice.manager@factory.local',
-      title: 'Operations Plant Manager',
-      clearance_level: 3,
-    }
+    return null
   })
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false)
 
@@ -124,28 +120,8 @@ export default function App() {
     return () => window.removeEventListener('motorguard:alert', handler)
   }, [])
 
-  // Fetch real alerts from backend API on mount
+  // Fetch real alerts from backend API on mount or auth update
   useEffect(() => {
-    async function ensureToken() {
-      if (!localStorage.getItem('motorguard_auth_token')) {
-        try {
-          const res = await fetch('/api/v1/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              username: 'manager_alice',
-              password: 'managerpassword123',
-            }),
-          })
-          if (res.ok) {
-            const data = await res.json()
-            localStorage.setItem('motorguard_auth_token', data.access_token)
-          }
-        } catch {}
-      }
-    }
-    ensureToken()
-
     async function fetchAlerts() {
       try {
         const token = localStorage.getItem('motorguard_auth_token')
@@ -163,7 +139,9 @@ export default function App() {
       }
     }
     fetchAlerts()
-  }, [])
+    refreshMotors()
+  }, [currentUser, refreshMotors])
+
 
   // Auto-seed initial 3 motors into fleet if empty so dashboard is immediately rich
   useEffect(() => {
@@ -228,20 +206,15 @@ export default function App() {
     return motorList[0]?.latest.timestamp
   }, [motorList])
 
-  // Logout action
+  // Real Logout action: clear storage and set user to null
   const handleLogout = () => {
     localStorage.removeItem('motorguard_auth_user')
     localStorage.removeItem('motorguard_auth_token')
-    setCurrentUser({
-      username: 'operator_bob',
-      role: 'Operator',
-      email: 'bob.operator@factory.local',
-      title: 'Line Floor SCADA Operator',
-      clearance_level: 1,
-    })
+    setCurrentUser(null)
+    setCurrentTab('overview')
   }
 
-  // Manager action: Assign alert to technician
+  // Manager action: Assign alert to technician and persist work order
   const handleAssignAlert = (
     alertId: string,
     technician: string,
@@ -249,19 +222,21 @@ export default function App() {
     instructions: string
   ) => {
     const nowIso = new Date().toISOString()
+    const actor = currentUser?.username || 'admin'
+
     setAlerts((prev) =>
       prev.map((a) => {
         if (a.alert_id === alertId) {
           return {
             ...a,
             assigned_to: technician,
-            assigned_by: currentUser.username,
+            assigned_by: actor,
             assigned_at: nowIso,
             priority,
             instructions,
             state: 'ACKNOWLEDGED',
             acknowledged_at: nowIso,
-            acknowledged_by: currentUser.username,
+            acknowledged_by: actor,
           }
         }
         return a
@@ -277,6 +252,23 @@ export default function App() {
         instructions,
       }),
     }).catch(() => {})
+
+    // Persist into MongoDB work_orders collection
+    const targetAlert = alerts.find((a) => a.alert_id === alertId)
+    const motorId = targetAlert ? targetAlert.motor_id : 'MTR-775-001'
+    const woPriority = priority === 'NORMAL' ? 'MEDIUM' : priority
+    fetch('/api/v1/work-orders', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        motor_id: motorId,
+        alert_id: alertId,
+        assigned_to_user_id: technician,
+        priority: woPriority,
+        title: `Maintenance on ${motorId}: ${targetAlert?.message || 'High Severity Fault'}`,
+        description: instructions || 'Inspect motor bearing, measure dynamic vibration RMS and verify thermals.',
+      }),
+    }).catch(() => {})
   }
 
   // Technician action: Resolve alert
@@ -289,6 +281,7 @@ export default function App() {
     downtimeMinutes: number
   ) => {
     const nowIso = new Date().toISOString()
+    const actor = currentUser?.username || 'technician'
 
     setAlerts((prev) =>
       prev.map((a) => {
@@ -297,7 +290,7 @@ export default function App() {
             ...a,
             state: 'RESOLVED',
             resolved_at: nowIso,
-            resolved_by: currentUser.username,
+            resolved_by: actor,
             resolution_notes: resolutionNotes,
           }
         }
@@ -341,24 +334,40 @@ export default function App() {
       lastUpdatedIso={latestTelemetryIso}
       currentUser={currentUser}
       onOpenLogin={() => setIsLoginModalOpen(true)}
+      onLogout={handleLogout}
       motors={motorList}
       selectedMotorId={selectedMotorId}
       onSelectMotor={setSelectedMotorId}
       criticalAlertCount={criticalAlertsCount}
       activeWorkOrderCount={assignedCount}
     >
-      {/* 1. OVERVIEW DASHBOARD */}
+      {/* 1. PUBLIC MARKETING LANDING PAGE OR AUTHENTICATED OVERVIEW DASHBOARD */}
       {(currentTab === 'overview' || currentTab === 'landing') && (
-        <OverviewView
-          stats={stats}
-          motors={motorList}
-          alerts={alerts}
-          onSelectMotorForAnalytics={handleSelectMotorForAnalytics}
-          onInspectMotorDetail={(m) => setSelectedModalMotor(m)}
-          onNavigate={setCurrentTab}
-          lastUpdatedIso={latestTelemetryIso}
-          wsConnected={wsConnected}
-        />
+        !currentUser || currentTab === 'landing' ? (
+          <LandingView
+            stats={stats}
+            criticalAlertsCount={criticalAlertsCount}
+            onNavigate={(tab) => {
+              if (tab === 'fleet' && !currentUser) {
+                setIsLoginModalOpen(true)
+              } else {
+                setCurrentTab(tab)
+              }
+            }}
+            onOpenLogin={() => setIsLoginModalOpen(true)}
+          />
+        ) : (
+          <OverviewView
+            stats={stats}
+            motors={motorList}
+            alerts={alerts}
+            onSelectMotorForAnalytics={handleSelectMotorForAnalytics}
+            onInspectMotorDetail={(m) => setSelectedModalMotor(m)}
+            onNavigate={setCurrentTab}
+            lastUpdatedIso={latestTelemetryIso}
+            wsConnected={wsConnected}
+          />
+        )
       )}
 
       {/* 2. MOTOR FLEET MANAGEMENT */}

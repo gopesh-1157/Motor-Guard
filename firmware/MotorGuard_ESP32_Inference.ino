@@ -78,26 +78,52 @@ bool oledOnline = false;
 Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
 bool adxlOnline = false;
 
+// ============================================================
+// DATA COLLECTION MODE TOGGLE
+// ============================================================
+// Set to 1 to enable interactive ground-truth training collection over Serial.
+// When 1, Wi-Fi broadcasting is paused to minimize ADC noise on GPIO 34.
+#define DATA_COLLECTION_MODE 0
+
 // ACS712 20A Pin & Sensitivity
 #define CURRENT_PIN 34
 const float ACS_SENSITIVITY = 0.100f; // 100 mV/A for ACS712-20A
 const float VOLTAGE_DIVIDER_RATIO = 0.6667f; // 20k / (10k + 20k)
-const float CURRENT_DEADBAND_A = 0.05f;
+// Adjusted deadband to 0.20 A to exceed the 10-20 mV typical ESP32 ADC noise floor
+const float CURRENT_DEADBAND_A = 0.20f;
 
 // Operational Thresholds
 const float MOTOR_SUPPLY_VOLTS = 12.0f;
 const float OVERCURRENT_LIMIT_A = 4.0f;
 
-// ADXL345 Vibration Sampling Settings
-// 100 Hz output data rate corresponds to a 10,000 us (10 ms) period
-const int VIBRATION_SAMPLES = 50;
-const unsigned long VIBRATION_SAMPLE_INTERVAL_US = 10000; 
+// ADXL345 Vibration Sampling Settings (800 Hz Output Data Rate)
+// 800 Hz corresponds to 1250 us interval. 128 samples captures a clean 160 ms window.
+const int VIBRATION_SAMPLES = 128;
+const unsigned long VIBRATION_SAMPLE_INTERVAL_US = 1250; 
 
-// Sensor Readings
+// Rich Vibration Feature Structure
+struct VibrationMetrics {
+  float rmsX;
+  float rmsY;
+  float rmsZ;
+  float totalRMS;
+  float peakG;
+  float crestFactor;
+  bool valid;
+};
+
+// Sensor Readings & Active Features
 float zeroPointVolts = 2.50f;
 float currentAmps = 0.0f;
 float vibrationRMS_g = 0.0f;
 float temperatureC = 0.0f;
+VibrationMetrics currentVibration = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false};
+
+#if DATA_COLLECTION_MODE
+char currentLabel = 'h';   // 'h'=healthy, 'o'=overload, 'i'=imbalance, 'l'=loose_mount
+int  runId = 1;
+unsigned long collectionRowsLogged = 0;
+#endif
 
 // Inference State & Metrics
 String inferenceStatus = "INPUT_INVALID"; // PREDICTED, INPUT_INVALID, MODEL_UNAVAILABLE, MODEL_ERROR
@@ -241,14 +267,14 @@ void calibrateACS712() {
 
 float readMotorCurrent() {
   float voltageSum = 0.0f;
-  const int SAMPLES = 60;
+  const int SAMPLES = 120; // Increased multi-sampling to damp ESP32 ADC noise
 
   for (int i = 0; i < SAMPLES; i++) {
     uint32_t mv = analogReadMilliVolts(CURRENT_PIN);
     float pinVoltage = mv / 1000.0f;
     float acsVoltage = pinVoltage / VOLTAGE_DIVIDER_RATIO;
     voltageSum += acsVoltage;
-    delayMicroseconds(350);
+    delayMicroseconds(250);
   }
 
   float averageVoltage = voltageSum / SAMPLES;
@@ -282,9 +308,11 @@ float readTemperature() {
   return temp;
 }
 
-float calculateVibrationRMS() {
+// 800 Hz Synchronized Multi-Axis Vibration Feature Extractor
+VibrationMetrics calculateVibrationFeatures() {
+  VibrationMetrics m = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false};
   if (!adxlOnline) {
-    return NAN;
+    return m;
   }
 
   float ax[VIBRATION_SAMPLES];
@@ -299,9 +327,10 @@ float calculateVibrationRMS() {
 
     if (!accel.getEvent(&event)) {
       adxlOnline = false;
-      return NAN;
+      return m;
     }
 
+    // Convert raw m/s^2 to g units (1g = 9.80665 m/s^2)
     ax[i] = event.acceleration.x / 9.80665f;
     ay[i] = event.acceleration.y / 9.80665f;
     az[i] = event.acceleration.z / 9.80665f;
@@ -310,6 +339,7 @@ float calculateVibrationRMS() {
     meanY += ay[i];
     meanZ += az[i];
 
+    // Synchronize sample pacing to 800 Hz ODR (1250 us interval)
     while (micros() - sampleStart < VIBRATION_SAMPLE_INTERVAL_US) {
       yield();
     }
@@ -319,16 +349,81 @@ float calculateVibrationRMS() {
   meanY /= VIBRATION_SAMPLES;
   meanZ /= VIBRATION_SAMPLES;
 
-  float sumSquares = 0.0f;
+  float sumSqX = 0.0f;
+  float sumSqY = 0.0f;
+  float sumSqZ = 0.0f;
+  float maxInstantG = 0.0f;
+
   for (int i = 0; i < VIBRATION_SAMPLES; i++) {
+    // Remove static DC gravity vector to extract dynamic alternating vibration
     float dx = ax[i] - meanX;
     float dy = ay[i] - meanY;
     float dz = az[i] - meanZ;
-    sumSquares += (dx * dx + dy * dy + dz * dz);
+
+    sumSqX += (dx * dx);
+    sumSqY += (dy * dy);
+    sumSqZ += (dz * dz);
+
+    float instVectorG = sqrt(dx * dx + dy * dy + dz * dz);
+    if (instVectorG > maxInstantG) {
+      maxInstantG = instVectorG;
+    }
   }
 
-  return sqrt(sumSquares / VIBRATION_SAMPLES);
+  m.rmsX = sqrt(sumSqX / VIBRATION_SAMPLES);
+  m.rmsY = sqrt(sumSqY / VIBRATION_SAMPLES);
+  m.rmsZ = sqrt(sumSqZ / VIBRATION_SAMPLES);
+  m.totalRMS = sqrt((sumSqX + sumSqY + sumSqZ) / VIBRATION_SAMPLES);
+  m.peakG = maxInstantG;
+  m.crestFactor = (m.totalRMS > 0.001f) ? (m.peakG / m.totalRMS) : 1.0f;
+  m.valid = true;
+
+  return m;
 }
+
+float calculateVibrationRMS() {
+  currentVibration = calculateVibrationFeatures();
+  return currentVibration.valid ? currentVibration.totalRMS : NAN;
+}
+
+#if DATA_COLLECTION_MODE
+void handleSerialCommands() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == 'n') {
+      runId++;
+      collectionRowsLogged = 0;
+      Serial.printf("# [NEW RUN] Switched to Run ID %d with label '%c'\n", runId, currentLabel);
+    } else if (c == 'h' || c == 'o' || c == 'i' || c == 'l') {
+      currentLabel = c;
+      const char* lblName = (c == 'h' ? "healthy" : c == 'o' ? "overload" : c == 'i' ? "imbalance" : "loose_mount");
+      Serial.printf("# [LABEL] Set active condition to '%c' (%s)\n", c, lblName);
+    } else if (c == 'c') {
+      calibrateACS712();
+    } else if (c == '?') {
+      Serial.println(F("# Commands: 'n'=new run | 'h'=healthy | 'o'=overload | 'i'=imbalance | 'l'=loose | 'c'=re-zero"));
+    }
+  }
+}
+
+void logCsvRow(float temp, float curr, const VibrationMetrics& vib) {
+  // Emits structured CSV: millis,run_id,label,temp_c,current_a,vib_x_rms,vib_y_rms,vib_z_rms,vib_rms_g,vib_peak_g,crest_factor
+  Serial.printf("%lu,%d,%c,%.1f,%.3f,%.4f,%.4f,%.4f,%.4f,%.4f,%.2f\n",
+    millis(),
+    runId,
+    currentLabel,
+    isnan(temp) ? 0.0f : temp,
+    isnan(curr) ? 0.0f : curr,
+    vib.valid ? vib.rmsX : 0.0f,
+    vib.valid ? vib.rmsY : 0.0f,
+    vib.valid ? vib.rmsZ : 0.0f,
+    vib.valid ? vib.totalRMS : 0.0f,
+    vib.valid ? vib.peakG : 0.0f,
+    vib.valid ? vib.crestFactor : 0.0f
+  );
+  collectionRowsLogged++;
+}
+#endif
 
 // ============================================================
 // EDGE IMPULSE TINYML CLASSIFICATION
@@ -361,11 +456,23 @@ void runMotorGuardInference(float temp, float vib, float curr) {
 #if USE_EDGE_IMPULSE_LIB
   memset(ei_features, 0, sizeof(ei_features));
 
-  if (EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE >= 3) {
+  if (EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE == 3) {
+    // 3-feature tabular impulse matching training dataset
     ei_features[0] = temp;
     ei_features[1] = vib;
     ei_features[2] = curr;
+  } else if (EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE == 8) {
+    // 8-feature rich window: temp, current, 3-axis RMS, total RMS, peak, crest factor
+    ei_features[0] = temp;
+    ei_features[1] = curr;
+    ei_features[2] = currentVibration.rmsX;
+    ei_features[3] = currentVibration.rmsY;
+    ei_features[4] = currentVibration.rmsZ;
+    ei_features[5] = currentVibration.totalRMS;
+    ei_features[6] = currentVibration.peakG;
+    ei_features[7] = currentVibration.crestFactor;
   } else {
+    // Frame size mismatch: reject to avoid feeding garbage zeroes into the neural net
     inferenceStatus = "MODEL_UNAVAILABLE";
     healthStatus = "unknown";
     hasInferenceProbabilities = false;
@@ -420,9 +527,13 @@ void runMotorGuardInference(float temp, float vib, float curr) {
     healthStatus = String(bestLabel);
     topConfidence = maxVal;
 
-    // Hard deterministic safety cutoff overrides
-    if (curr >= OVERCURRENT_LIMIT_A || temp >= 50.0f || vib >= 0.80f) {
+    // Hard deterministic safety cutoff overrides (consistent across both paths)
+    if (curr >= OVERCURRENT_LIMIT_A || temp >= 75.0f || vib >= 0.80f) {
       healthStatus = "critical";
+    } else if (curr > 3.0f || temp >= 50.0f || vib >= 0.20f) {
+      if (healthStatus == "healthy") {
+        healthStatus = "warning";
+      }
     }
     return;
   } else {
@@ -720,13 +831,14 @@ void setup() {
     display.clearDisplay();
   }
 
-  // 7. ADXL345 Accelerometer Setup (100 Hz Output Data Rate)
+  // 7. ADXL345 Accelerometer Setup (800 Hz Output Data Rate on Fast 400kHz I2C)
   Wire.begin(21, 22);
+  Wire.setClock(400000); // 400 kHz fast I2C clock on Bus 0
   if (accel.begin(0x53)) {
     adxlOnline = true;
     accel.setRange(ADXL345_RANGE_4_G);
-    accel.setDataRate(ADXL345_DATARATE_100_HZ);
-    Serial.println("[ADXL345] Online and configured for 100 Hz (+/-4g)");
+    accel.setDataRate(ADXL345_DATARATE_800_HZ);
+    Serial.println("[ADXL345] Online and configured for 800 Hz (+/-4g) on 400kHz I2C");
   } else {
     adxlOnline = false;
     Serial.println("[ADXL345] WARNING: Sensor not detected on I2C address 0x53!");
@@ -734,6 +846,17 @@ void setup() {
 
   // 8. Calibrate ACS712 Zero Offset on Boot
   calibrateACS712();
+
+#if DATA_COLLECTION_MODE
+  Serial.println(F("\n================================================================="));
+  Serial.println(F("  MOTORGUARD RAW SENSOR DATA COLLECTION MODE ACTIVE              "));
+  Serial.println(F("  Interactive Keys: 'h'=healthy, 'o'=overload, 'i'=imbalance,    "));
+  Serial.println(F("                    'l'=loose mount, 'n'=increment run ID,       "));
+  Serial.println(F("                    'c'=re-zero ACS712, '?'=help                 "));
+  Serial.println(F("================================================================="));
+  // Print standard CSV header for streaming ingestion
+  Serial.println(F("timestamp_ms,run_id,label,temp_c,current_a,vib_x_rms,vib_y_rms,vib_z_rms,vib_rms_g,vib_peak_g,crest_factor"));
+#endif
 
   Serial.println("[SYSTEM] Setup complete. Ready.\n");
 }
@@ -743,6 +866,27 @@ void setup() {
 // ============================================================
 
 void loop() {
+#if DATA_COLLECTION_MODE
+  // 1. Process interactive serial commands for ground-truth labeling
+  handleSerialCommands();
+
+  // 2. High-speed synchronized sensor read
+  temperatureC   = readTemperature();
+  currentAmps    = readMotorCurrent();
+  vibrationRMS_g = calculateVibrationRMS(); // Populates currentVibration struct
+
+  // 3. Log every computed window (zero window discard during collection)
+  logCsvRow(temperatureC, currentAmps, currentVibration);
+
+  // 4. Update OLED periodically without stalling collection
+  if (millis() - lastOledUpdate >= 500) {
+    lastOledUpdate = millis();
+    updateOLED(temperatureC, currentAmps, vibrationRMS_g);
+  }
+
+  delay(5);
+#else
+  // Live Production & Edge Inference Mode
   // Handle incoming HTTP requests from connected laptops/phones
   server.handleClient();
 
@@ -775,4 +919,5 @@ void loop() {
   }
 
   delay(10);
+#endif
 }

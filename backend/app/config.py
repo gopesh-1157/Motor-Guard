@@ -1,6 +1,7 @@
 import os
-from typing import List
+from typing import List, Optional
 from pydantic import Field, field_validator, model_validator
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +43,17 @@ class Settings(BaseSettings):
     DEFAULT_MAX_TEMP_C: float = Field(default=50.0, description="Thermal warning limit in Celsius")
     DEFAULT_MAX_VIBRATION_G: float = Field(default=0.200, description="Vibration RMS warning limit in g")
 
+    # Security & Hardening Controls
+    DEBUG: bool = Field(default=False, description="Enable debug mode (strictly false in production)")
+    ENABLE_DOCS: bool = Field(default=True, description="Enable OpenAPI docs UI (/docs and /redoc)")
+    ADMIN_INITIAL_PASSWORD: Optional[str] = Field(
+        default=None,
+        description="Initial seed password for default Admin account",
+    )
+    RATELIMIT_ENABLED: bool = Field(default=True, description="Enable sliding-window rate limiting")
+    RATELIMIT_LOGIN_PER_MIN: int = Field(default=10, description="Max login attempts per minute per IP")
+    RATELIMIT_GENERAL_PER_MIN: int = Field(default=180, description="Max general API requests per minute per IP")
+
     # App Metadata
     APP_VERSION: str = "1.0.0"
     APP_NAME: str = "MotorGuard Edge Gateway API"
@@ -54,13 +66,21 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> List[str]:
-        if not self.CORS_ORIGINS:
-            return ["*"]
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        if not self.CORS_ORIGINS or self.CORS_ORIGINS.strip() == "*":
+            # In development fallback to standard frontend ports; never return wildcard '*' with credentials
+            if self.ENVIRONMENT.lower() != "production":
+                return ["http://localhost:5173", "http://127.0.0.1:5173"]
+            return []
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip() and origin.strip() != "*"]
 
     @model_validator(mode="after")
     def validate_production_requirements(self) -> "Settings":
-        if self.ENVIRONMENT.lower() == "production":
+        # Sanitize runtime strings
+        self.ENVIRONMENT = self.ENVIRONMENT.strip().lower()
+
+        if self.ENVIRONMENT == "production":
+            if self.DEBUG:
+                raise ValueError("DEBUG must be set to False in production")
             if (
                 not self.SECRET_KEY
                 or "change_this" in self.SECRET_KEY
@@ -71,6 +91,10 @@ class Settings(BaseSettings):
                 )
             if not self.MQTT_PASSWORD:
                 raise ValueError("MQTT_PASSWORD must be configured in production")
+            if not self.cors_origins_list:
+                raise ValueError("Explicit CORS_ORIGINS must be configured in production (wildcard '*' is forbidden)")
+            # Disable interactive docs in production by default
+            self.ENABLE_DOCS = False
         return self
 
 

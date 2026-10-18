@@ -14,7 +14,9 @@ class MongoDBManager:
     @classmethod
     async def connect_to_database(cls) -> None:
         try:
-            logger.info("Initializing MongoDB connection to %s", settings.MONGO_URI)
+            import re
+            sanitized_uri = re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", settings.MONGO_URI)
+            logger.info("Initializing MongoDB connection to %s", sanitized_uri)
             cls.client = AsyncIOMotorClient(
                 settings.MONGO_URI,
                 serverSelectionTimeoutMS=2000,

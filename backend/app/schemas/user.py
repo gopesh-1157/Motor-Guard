@@ -4,7 +4,8 @@ MotorGuard — User & Auth Pydantic Schemas
 
 from datetime import datetime
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from backend.app.core.security import validate_password_strength
 
 UserRole = Literal["Admin", "Manager", "Technician", "Operator"]
 
@@ -19,7 +20,15 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def check_password_complexity(cls, v: str) -> str:
+        valid, err = validate_password_strength(v)
+        if not valid:
+            raise ValueError(err)
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -28,7 +37,17 @@ class UserUpdate(BaseModel):
     assigned_sites: Optional[List[str]] = None
     assigned_motors: Optional[List[str]] = None
     is_active: Optional[bool] = None
-    password: Optional[str] = Field(default=None, min_length=6)
+    password: Optional[str] = Field(default=None, min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def check_password_complexity(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            valid, err = validate_password_strength(v)
+            if not valid:
+                raise ValueError(err)
+        return v
+
 
 
 class UserOut(UserBase):

@@ -22,6 +22,26 @@ def mock_db():
     db_manager.db = original_db
 
 
+@pytest.fixture(autouse=True)
+def auth_override():
+    from backend.app.schemas.user import UserOut
+    from backend.app.core.auth import get_current_active_user
+    mock_user = UserOut(
+        id="usr-test",
+        username="operator_bob",
+        email="bob@factory.local",
+        role="Manager",
+
+        assigned_sites=["SITE-MAIN"],
+        assigned_motors=[],
+        is_active=True,
+    )
+    app.dependency_overrides[get_current_active_user] = lambda: mock_user
+    yield
+    app.dependency_overrides.pop(get_current_active_user, None)
+
+
+
 def test_historical_telemetry_query(mock_db):
     """Verify querying historical telemetry with filter criteria."""
     cursor_mock = MagicMock()

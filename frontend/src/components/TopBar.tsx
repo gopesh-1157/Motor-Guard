@@ -4,6 +4,7 @@ import {
   Moon,
   Clock,
   Layers,
+  LogOut,
 } from 'lucide-react'
 import type { NavigationTab, UserProfile, MotorState } from '../types'
 
@@ -15,6 +16,7 @@ interface TopBarProps {
   lastUpdatedIso?: string
   currentUser: UserProfile | null
   onOpenLogin: () => void
+  onLogout?: () => void
   theme: 'light' | 'dark'
   onToggleTheme: () => void
   motors: MotorState[]
@@ -30,6 +32,7 @@ export const TopBar: FC<TopBarProps> = ({
   lastUpdatedIso,
   currentUser,
   onOpenLogin,
+  onLogout,
   theme,
   onToggleTheme,
   motors,
@@ -178,22 +181,45 @@ export const TopBar: FC<TopBarProps> = ({
           {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
         </button>
 
-        {/* User Role Profile Pill */}
-        <div
-          className="user-profile-pill"
-          onClick={onOpenLogin}
-          title="Click to Switch Role or Sign Out"
-        >
-          <div className="user-avatar">
-            {currentUser?.username.slice(0, 2).toUpperCase() || 'OP'}
+        {/* User Profile / Auth Button */}
+        {!currentUser ? (
+          <button
+            className="btn-primary-glow"
+            style={{ padding: '6px 14px', fontSize: '12px' }}
+            onClick={onOpenLogin}
+          >
+            🔑 Sign In
+          </button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div
+              className="user-profile-pill"
+              title={`Logged in as ${currentUser.username} (${currentUser.role})`}
+              onClick={onOpenLogin}
+            >
+              <div className="user-avatar">
+                {currentUser.username.slice(0, 2).toUpperCase()}
+              </div>
+              <div>
+                <div className="user-meta-name">{currentUser.username}</div>
+              </div>
+              <span className="user-role-badge">
+                {currentUser.role}
+              </span>
+            </div>
+            {onLogout && (
+              <button
+                className="theme-toggle-btn"
+                onClick={onLogout}
+                title="Sign Out"
+                aria-label="Sign Out"
+                style={{ color: 'var(--status-critical)' }}
+              >
+                <LogOut size={14} />
+              </button>
+            )}
           </div>
-          <div>
-            <div className="user-meta-name">{currentUser?.username || 'Operator'}</div>
-          </div>
-          <span className="user-role-badge">
-            {currentUser?.role || 'Guest'}
-          </span>
-        </div>
+        )}
       </div>
     </header>
   )

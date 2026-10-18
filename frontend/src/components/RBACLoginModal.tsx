@@ -147,7 +147,6 @@ export const RBACLoginModal: FC<RBACLoginModalProps> = ({
     })
 
     try {
-      // 1. Try real backend login
       const response = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,40 +176,23 @@ export const RBACLoginModal: FC<RBACLoginModalProps> = ({
         onLoginSuccess(userObj)
         onClose()
         return
+      } else {
+        const errData = await response.json().catch(() => ({}))
+        setErrorMsg(errData.detail || 'Invalid username or password. Please verify credentials.')
       }
     } catch {
-      // Backend not running or offline; proceed to verified demo credential fallback
+      setErrorMsg('Cannot reach gateway authentication service. Ensure FastAPI backend is running.')
+    } finally {
+      setIsLoading(false)
     }
 
-    // 2. Client-Side Verified Demo Fallback
-    const matched = DEMO_PERSONAS.find(
-      (p) => p.username.toLowerCase() === username.toLowerCase() && p.password === password
-    )
-
-    if (matched) {
-      const userObj: UserProfile = {
-        username: matched.username,
-        role: matched.role,
-        email: `${matched.username}@factory.local`,
-        title: matched.title,
-        clearance_level: matched.clearanceLevel,
-        token: `demo-token-${Date.now()}`,
-      }
-
-      localStorage.setItem('motorguard_auth_user', JSON.stringify(userObj))
-      onLoginSuccess(userObj)
-      onClose()
-    } else {
-      // Failed credentials: trigger Anime.js error shake
-      setIsLoading(false)
-      setErrorMsg('Invalid authentication credentials. Select a quick persona above or check password.')
-      if (formBoxRef.current) {
-        animate(formBoxRef.current, {
-          translateX: [-12, 12, -9, 9, -5, 5, 0],
-          duration: 400,
-          ease: 'inOutQuad',
-        })
-      }
+    // Trigger error shake animation
+    if (formBoxRef.current) {
+      animate(formBoxRef.current, {
+        translateX: [-12, 12, -9, 9, -5, 5, 0],
+        duration: 400,
+        ease: 'inOutQuad',
+      })
     }
   }
 

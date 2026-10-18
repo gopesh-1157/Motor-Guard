@@ -30,7 +30,6 @@ def get_user_service() -> UserService:
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    user_service: UserService = Depends(get_user_service),
 ) -> UserOut:
     """Extract and validate JWT token to resolve the authenticated User."""
     credentials_exception = HTTPException(
@@ -38,22 +37,7 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    if not token or (isinstance(token, str) and token.startswith("demo-token")):
-        from backend.app.config import settings
-        if settings.ENVIRONMENT == "development":
-            dev_user = await user_service.get_by_username("manager_alice") or await user_service.get_by_username("admin")
-            if dev_user:
-                return UserOut(
-                    id=dev_user.id,
-                    username=dev_user.username,
-                    email=dev_user.email,
-                    role=dev_user.role,
-                    assigned_sites=dev_user.assigned_sites,
-                    assigned_motors=dev_user.assigned_motors,
-                    is_active=dev_user.is_active,
-                    created_at=dev_user.created_at,
-                    last_login_at=dev_user.last_login_at,
-                )
+    if not token:
         raise credentials_exception
 
     payload = decode_access_token(token)
@@ -64,9 +48,17 @@ async def get_current_user(
     if username is None:
         raise credentials_exception
 
+    from backend.app.main import app
+    if get_user_service in app.dependency_overrides:
+        override = app.dependency_overrides[get_user_service]
+        user_service = override() if callable(override) else override
+    else:
+        user_service = get_user_service()
+
     user = await user_service.get_by_username(username)
     if user is None:
         raise credentials_exception
+
 
     return UserOut(
         id=user.id,

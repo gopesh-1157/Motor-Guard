@@ -91,19 +91,36 @@ class UserService:
             users.append(UserOut(**doc))
         return users
 
+    async def list_technicians(self) -> List[UserOut]:
+        """List active users with 'Technician' role for work order assignment."""
+        cursor = self.collection.find({"role": "Technician", "is_active": True})
+        technicians = []
+        async for doc in cursor:
+            doc["id"] = str(doc.pop("_id", ""))
+            technicians.append(UserOut(**doc))
+        return technicians
+
     async def seed_default_admin(self) -> None:
         """Create default admin user if users collection is empty."""
         count = await self.collection.count_documents({})
         if count == 0:
-            logger.info("No users found. Seeding default Admin user...")
+            from backend.app.config import settings
+            admin_pwd = settings.ADMIN_INITIAL_PASSWORD or "adminpassword123"
+            if settings.ENVIRONMENT == "production" and not settings.ADMIN_INITIAL_PASSWORD:
+                logger.critical(
+                    "SECURITY WARNING: Seeding admin in production without ADMIN_INITIAL_PASSWORD configured! "
+                    "Rotate admin password immediately!"
+                )
+            logger.info("No users found. Seeding initial Admin user...")
             admin_user = UserCreate(
                 username="admin",
                 email="admin@motorguard.local",
                 role="Admin",
-                password="adminpassword123",
+                password=admin_pwd,
                 assigned_sites=["SITE-MAIN"],
                 assigned_motors=[],
                 is_active=True,
             )
             await self.create_user(admin_user)
             logger.info("Default Admin user 'admin' seeded")
+

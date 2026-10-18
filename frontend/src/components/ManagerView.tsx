@@ -20,7 +20,9 @@ export const ManagerView: FC<ManagerViewProps> = ({
   currentUser,
   onOpenLogin,
 }) => {
-  const isManagerOrAdmin = !currentUser || currentUser.clearance_level >= 3
+  const isManagerOrAdmin = Boolean(
+    currentUser && (currentUser.role === 'Manager' || currentUser.role === 'Admin' || currentUser.clearance_level >= 3)
+  )
 
   const [selectedAlertForAssign, setSelectedAlertForAssign] = useState<AlertItem | null>(null)
   const [selectedTechnician, setSelectedTechnician] = useState<string>('tech_dave')

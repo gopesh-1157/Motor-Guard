@@ -28,7 +28,9 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
   onMotorRegistered,
   onOpenLogin,
 }) => {
-  const isManagerOrAdmin = !currentUser || currentUser.clearance_level >= 3
+  const isManagerOrAdmin = Boolean(
+    currentUser && (currentUser.role === 'Manager' || currentUser.role === 'Admin' || currentUser.clearance_level >= 3)
+  )
 
   // Core Data
   const [registeredMotors, setRegisteredMotors] = useState<RegisteredMotor[]>([])

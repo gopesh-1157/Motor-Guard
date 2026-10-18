@@ -282,3 +282,32 @@ export interface UserProfile {
   token?: string
 }
 
+export type WorkOrderStatus = 'Assigned' | 'Accepted' | 'In Progress' | 'Resolved' | 'Rejected'
+export type WorkOrderPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | 'CRITICAL'
+
+export interface WorkOrderItem {
+  id?: string
+  work_order_id: string
+  motor_id: string
+  alert_id?: string | null
+  assigned_to_user_id: string
+  assigned_by_user_id: string
+  priority: WorkOrderPriority
+  title: string
+  description: string
+  status: WorkOrderStatus
+  created_at: string
+  assigned_at?: string | null
+  accepted_at?: string | null
+  started_at?: string | null
+  resolved_at?: string | null
+  rejected_at?: string | null
+  diagnosis?: string | null
+  actions_taken?: string | null
+  parts_replaced: string[]
+  downtime_minutes: number
+  resolution_notes?: string | null
+  rejection_reason?: string | null
+  updated_at: string
+}
+

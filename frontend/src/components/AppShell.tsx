@@ -14,6 +14,7 @@ interface AppShellProps {
   lastUpdatedIso?: string
   currentUser: UserProfile | null
   onOpenLogin: () => void
+  onLogout?: () => void
   motors: MotorState[]
   selectedMotorId: string
   onSelectMotor: (id: string) => void
@@ -31,6 +32,7 @@ export const AppShell: FC<AppShellProps> = ({
   lastUpdatedIso,
   currentUser,
   onOpenLogin,
+  onLogout,
   motors,
   selectedMotorId,
   onSelectMotor,
@@ -78,6 +80,7 @@ export const AppShell: FC<AppShellProps> = ({
         onToggleCollapse={toggleSidebar}
         criticalAlertCount={criticalAlertCount}
         activeWorkOrderCount={activeWorkOrderCount}
+        currentUser={currentUser}
       />
 
       {/* Main Right Column */}
@@ -91,6 +94,7 @@ export const AppShell: FC<AppShellProps> = ({
           lastUpdatedIso={lastUpdatedIso}
           currentUser={currentUser}
           onOpenLogin={onOpenLogin}
+          onLogout={onLogout}
           theme={theme}
           onToggleTheme={toggleTheme}
           motors={motors}

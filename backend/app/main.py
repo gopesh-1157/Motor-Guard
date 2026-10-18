@@ -1,7 +1,8 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import settings
 from backend.app.api.v1.api import api_router
@@ -94,6 +95,10 @@ async def lifespan(app: FastAPI):
         maintenance_service = MaintenanceService(db_manager.db)
         await maintenance_service.ensure_indexes()
 
+        from backend.app.services.work_order_service import WorkOrderService
+        work_order_service = WorkOrderService(db_manager.db)
+        await work_order_service.ensure_indexes()
+
         device_service = DeviceService(db_manager.db)
         await device_service.ensure_indexes()
         await device_service.seed_default_devices()
@@ -143,30 +148,58 @@ async def lifespan(app: FastAPI):
     motor_service = None
 
 
+from backend.app.core.middleware import SecurityHeadersMiddleware, RateLimitMiddleware
+from starlette.responses import JSONResponse
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="MotorGuard Local-First Edge Gateway Ingestion, Monitoring, and REST API.",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    debug=settings.DEBUG,
+    docs_url="/docs" if settings.ENABLE_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if settings.ENABLE_DOCS else None,
 )
 
-# CORS middleware for local frontend dashboard access
+# 1. CORS middleware with explicit whitelist, methods, and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    expose_headers=["Content-Disposition"],
+    max_age=600,
 )
+
+# 2. Rate limiting middleware
+app.add_middleware(RateLimitMiddleware)
+
+# 3. Security headers middleware (CSP, X-Frame-Options, XSS, nosniff)
+app.add_middleware(SecurityHeadersMiddleware)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Prevent internal server tracebacks from leaking to API clients in production."""
+    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    if settings.ENVIRONMENT == "production":
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error. Please contact the administrator."},
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
+
 
 # Include API v1 router
 app.include_router(api_router, prefix="/api/v1")
 
 
 from pathlib import Path
-from fastapi import Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -188,13 +221,16 @@ async def root(request: Request):
     index_file = DIST_DIR / "index.html"
     if "text/html" in accept and index_file.is_file():
         return FileResponse(str(index_file))
-    return {
+    res = {
         "service": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "health": "/api/v1/health/live",
         "dashboard": "/app/",
-        "docs": "/docs",
     }
+    if settings.ENABLE_DOCS:
+        res["docs"] = "/docs"
+    return res
+
 
 
 @app.websocket("/ws/telemetry")

@@ -85,8 +85,12 @@ export const AlertsView: FC<AlertsViewProps> = ({
   onOpenLogin,
   onNavigateToMotor,
 }) => {
-  const isManagerOrAdmin = !currentUser || currentUser.clearance_level >= 3
-  const isTechOrAbove = !currentUser || currentUser.clearance_level >= 2
+  const isManagerOrAdmin = Boolean(
+    currentUser && (currentUser.role === 'Manager' || currentUser.role === 'Admin' || currentUser.clearance_level >= 3)
+  )
+  const isTechOrAbove = Boolean(
+    currentUser && (currentUser.role === 'Technician' || currentUser.role === 'Manager' || currentUser.role === 'Admin' || currentUser.clearance_level >= 2)
+  )
 
   // State
   const [filterTab, setFilterTab] = useState<FilterTab>('ALL')

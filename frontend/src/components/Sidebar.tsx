@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   Sliders,
 } from 'lucide-react'
-import type { NavigationTab } from '../types'
+import type { NavigationTab, UserProfile } from '../types'
 
 interface SidebarProps {
   currentTab: NavigationTab
@@ -22,6 +22,7 @@ interface SidebarProps {
   onToggleCollapse: () => void
   criticalAlertCount: number
   activeWorkOrderCount: number
+  currentUser?: UserProfile | null
 }
 
 interface NavItem {
@@ -38,6 +39,7 @@ export const Sidebar: FC<SidebarProps> = ({
   onToggleCollapse,
   criticalAlertCount,
   activeWorkOrderCount,
+  currentUser,
 }) => {
   const navItems: NavItem[] = [
     { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -50,6 +52,23 @@ export const Sidebar: FC<SidebarProps> = ({
     { key: 'reports', label: 'Reports', icon: FileText },
     { key: 'settings', label: 'Settings', icon: Settings },
   ]
+
+  // Role-based visibility filtering
+  const visibleNavItems = navItems.filter((item) => {
+    if (!currentUser) return item.key === 'overview'
+    const role = currentUser.role
+    if (role === 'Admin') return true
+    if (role === 'Manager') {
+      return ['overview', 'fleet', 'live', 'analytics', 'alerts', 'reports'].includes(item.key)
+    }
+    if (role === 'Technician') {
+      return ['overview', 'maintenance', 'live', 'analytics'].includes(item.key)
+    }
+    if (role === 'Operator') {
+      return ['overview', 'live'].includes(item.key)
+    }
+    return item.key === 'overview'
+  })
 
   // Map legacy/alias tabs to standard keys for active highlight
   const normalizedTab = (tab: NavigationTab): NavigationTab => {
@@ -90,7 +109,7 @@ export const Sidebar: FC<SidebarProps> = ({
       </div>
 
       <nav className="sidebar-nav-list">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon
           const isActive = activeKey === item.key
 

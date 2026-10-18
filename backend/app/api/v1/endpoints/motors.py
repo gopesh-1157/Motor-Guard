@@ -26,10 +26,12 @@ def get_motor_service() -> MotorService:
 @router.get("", response_model=List[MotorOut], summary="List all registered motors")
 async def list_motors(
     site_id: Optional[str] = Query(None, description="Filter by plant site ID"),
+    current_user: UserOut = Depends(get_current_active_user),
     motor_service: MotorService = Depends(get_motor_service),
 ):
-    """List all registered motor assets with operational and health status."""
+    """List all registered motor assets with operational and health status (Requires authenticated user)."""
     return await motor_service.list_motors(site_id=site_id)
+
 
 
 @router.post("", response_model=MotorOut, status_code=status.HTTP_201_CREATED, summary="Register new motor")
@@ -55,9 +57,10 @@ async def get_audit_trail(
 @router.get("/{motor_id}", response_model=MotorOut, summary="Get motor details")
 async def get_motor(
     motor_id: str,
+    current_user: UserOut = Depends(get_current_active_user),
     motor_service: MotorService = Depends(get_motor_service),
 ):
-    """Retrieve full configuration and live operational status for a single motor."""
+    """Retrieve full configuration and live operational status for a single motor (Requires authenticated user)."""
     motor = await motor_service.get_motor(motor_id)
     if not motor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Motor '{motor_id}' not found")
@@ -78,6 +81,7 @@ async def update_motor(
 @router.get("/{motor_id}/configuration", summary="Get motor configuration JSON")
 async def get_motor_configuration(
     motor_id: str,
+    current_user: UserOut = Depends(get_current_active_user),
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Export clean non-secret hardware sensor mappings, thresholds, and AI profile."""

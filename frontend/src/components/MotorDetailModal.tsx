@@ -197,13 +197,13 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
           className="modal-body"
           style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}
         >
-          {/* Primary 4 Metric Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          {/* Primary 4 Metric Cards with Plain-English Interpretations */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
             {/* 1. Temp */}
             <div
               className={`metric-card ${activeChartMetric === 'temperature' ? 'active' : ''}`}
               onClick={() => setActiveChartMetric('temperature')}
-              style={{ cursor: 'pointer', padding: '12px' }}
+              style={{ cursor: 'pointer', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}
             >
               <div className="metric-header">
                 <span className="metric-label" style={{ fontSize: '11px' }}>Temperature</span>
@@ -219,13 +219,24 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 <span>Warn: 50.0°C • Crit: 75.0°C</span>
                 <span className={`status-pill ${sensor_status.temperature.toLowerCase()}`}>{sensor_status.temperature}</span>
               </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-main)', background: 'var(--bg-subtle)', padding: '6px', borderRadius: '4px', lineHeight: 1.3 }}>
+                {sensors.temperature_c != null ? (
+                  sensors.temperature_c > 75.0 ? (
+                    <span style={{ color: 'var(--status-critical)' }}>Critical: {sensors.temperature_c.toFixed(1)}°C exceeds the 75.0°C emergency shutdown limit.</span>
+                  ) : sensors.temperature_c > 50.0 ? (
+                    <span style={{ color: 'var(--status-warning)' }}>Warning: {sensors.temperature_c.toFixed(1)}°C exceeds the configured 50.0°C warning threshold.</span>
+                  ) : (
+                    <span>Temperature: {sensors.temperature_c.toFixed(1)}°C. This is below the configured 50.0°C warning threshold.</span>
+                  )
+                ) : 'Sensor disconnected.'}
+              </div>
             </div>
 
             {/* 2. Current */}
             <div
               className={`metric-card ${activeChartMetric === 'current' ? 'active' : ''}`}
               onClick={() => setActiveChartMetric('current')}
-              style={{ cursor: 'pointer', padding: '12px' }}
+              style={{ cursor: 'pointer', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}
             >
               <div className="metric-header">
                 <span className="metric-label" style={{ fontSize: '11px' }}>Armature Current</span>
@@ -241,13 +252,24 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 <span>Trip Limit: 4.00 A</span>
                 <span className={`status-pill ${sensor_status.current.toLowerCase()}`}>{sensor_status.current}</span>
               </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-main)', background: 'var(--bg-subtle)', padding: '6px', borderRadius: '4px', lineHeight: 1.3 }}>
+                {sensors.current_a != null ? (
+                  sensors.current_a > 4.00 ? (
+                    <span style={{ color: 'var(--status-critical)' }}>Overload: {sensors.current_a.toFixed(2)} A exceeds the configured 4.00 A trip limit.</span>
+                  ) : sensors.current_a > 3.00 ? (
+                    <span style={{ color: 'var(--status-warning)' }}>Current: {sensors.current_a.toFixed(2)} A is elevated near full-load capacity.</span>
+                  ) : (
+                    <span>Current: {sensors.current_a.toFixed(2)} A. This is below the configured 4.00 A warning threshold.</span>
+                  )
+                ) : 'Sensor disconnected.'}
+              </div>
             </div>
 
             {/* 3. Vibration */}
             <div
               className={`metric-card ${activeChartMetric === 'vibration' ? 'active' : ''}`}
               onClick={() => setActiveChartMetric('vibration')}
-              style={{ cursor: 'pointer', padding: '12px' }}
+              style={{ cursor: 'pointer', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}
             >
               <div className="metric-header">
                 <span className="metric-label" style={{ fontSize: '11px' }}>3-Axis Dynamic Vibration</span>
@@ -260,13 +282,24 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 <span className="metric-unit">g RMS</span>
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>ISO 10816: 0.200 g</span>
+                <span>ISO 10816: 0.200 g RMS</span>
                 <span className={`status-pill ${sensor_status.vibration.toLowerCase()}`}>{sensor_status.vibration}</span>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-main)', background: 'var(--bg-subtle)', padding: '6px', borderRadius: '4px', lineHeight: 1.3 }}>
+                {sensors.vibration_g_rms != null ? (
+                  sensors.vibration_g_rms > 0.400 ? (
+                    <span style={{ color: 'var(--status-critical)' }}>Critical: {sensors.vibration_g_rms.toFixed(3)} g RMS indicates severe bearing or coupling distress.</span>
+                  ) : sensors.vibration_g_rms > 0.200 ? (
+                    <span style={{ color: 'var(--status-warning)' }}>Warning: {sensors.vibration_g_rms.toFixed(3)} g RMS exceeds ISO 10816 (0.200 g).</span>
+                  ) : (
+                    <span>Vibration: {sensors.vibration_g_rms.toFixed(3)} g RMS. This is below the configured 0.200 g warning threshold.</span>
+                  )
+                ) : 'Sensor disconnected.'}
               </div>
             </div>
 
             {/* 4. Power */}
-            <div className="metric-card" style={{ padding: '12px' }}>
+            <div className="metric-card" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div className="metric-header">
                 <span className="metric-label" style={{ fontSize: '11px' }}>Power (12V Nominal)</span>
                 <Gauge size={14} color="var(--sensor-power)" />
@@ -280,6 +313,99 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
                 <span>Calculated: P = V &times; I</span>
               </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-main)', background: 'var(--bg-subtle)', padding: '6px', borderRadius: '4px', lineHeight: 1.3 }}>
+                {powerW != null ? `Active electrical draw: ${powerW} W across 12V DC bus.` : 'Awaiting current reading.'}
+              </div>
+            </div>
+          </div>
+
+          {/* Plain-English Condition Explanation & Operator Guidance (Non-Technical Readable) */}
+          <div
+            className="card"
+            style={{
+              padding: '16px',
+              borderLeft: `4px solid ${
+                connectionStatus === 'offline'
+                  ? 'var(--text-muted)'
+                  : inference.health_status === 'critical'
+                  ? 'var(--status-critical)'
+                  : inference.health_status === 'warning'
+                  ? 'var(--status-warning)'
+                  : 'var(--status-healthy)'
+              }`,
+              background: 'var(--bg-subtle)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)' }}>
+                Plain-English Condition Explanation &amp; Operator Guidance
+              </span>
+              <span
+                className={`badge-status ${
+                  connectionStatus === 'offline'
+                    ? 'warning'
+                    : inference.health_status === 'critical'
+                    ? 'critical'
+                    : inference.health_status === 'warning'
+                    ? 'warning'
+                    : 'healthy'
+                }`}
+              >
+                {connectionStatus === 'offline'
+                  ? 'OFFLINE'
+                  : inference.health_status.toUpperCase()}
+              </span>
+            </div>
+
+            <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)', margin: '0 0 10px 0' }}>
+              {connectionStatus === 'offline'
+                ? 'Offline: No recent readings have arrived. Check the ESP32, power supply, network, and sensor connections.'
+                : inference.health_status === 'healthy'
+                ? 'Healthy: The motor is operating within its configured monitoring limits.'
+                : inference.health_status === 'warning'
+                ? 'Warning: The motor has readings that need attention. Arrange an inspection.'
+                : inference.health_status === 'critical'
+                ? 'Critical: A serious fault condition has been detected. Inspect the motor promptly and follow the site\'s safety procedures.'
+                : 'Unknown: There is not enough reliable data to determine the motor\'s condition.'}
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px', fontSize: '12px' }}>
+              <div>
+                <strong style={{ color: 'var(--text-muted)' }}>What was detected:</strong>
+                <div style={{ color: 'var(--text-main)', marginTop: '2px' }}>
+                  {inference.health_status === 'critical'
+                    ? `Critical fault: ${sensors.vibration_g_rms && sensors.vibration_g_rms > 0.4 ? 'Excessive bearing vibration' : sensors.temperature_c && sensors.temperature_c > 75 ? 'Overtemperature spike' : 'Multi-sensor anomaly'} flagged by TinyML with ${(inference.confidence * 100).toFixed(0)}% confidence.`
+                    : inference.health_status === 'warning'
+                    ? `Warning threshold exceeded on ${sensors.temperature_c && sensors.temperature_c > 50 ? 'thermal sensor (DHT11)' : 'vibration sensor (ADXL345)'}.`
+                    : 'All physical sensor parameters (Temperature, Current, Vibration RMS) within baseline.'}
+                </div>
+              </div>
+
+              <div>
+                <strong style={{ color: 'var(--text-muted)' }}>Why it matters:</strong>
+                <div style={{ color: 'var(--text-main)', marginTop: '2px' }}>
+                  {inference.health_status === 'critical'
+                    ? 'Unaddressed critical vibration or thermal runaway leads to catastrophic bearing seizure and production stoppage.'
+                    : inference.health_status === 'warning'
+                    ? 'Early detection of thermal/vibration drift allows planned lubrication or re-tensioning before mechanical damage occurs.'
+                    : 'Motor is running efficiently with optimal magnetic flux and balanced mechanical bearings.'}
+                </div>
+              </div>
+
+              <div>
+                <strong style={{ color: 'var(--text-muted)' }}>Recommended operator action:</strong>
+                <div style={{ color: 'var(--text-main)', marginTop: '2px' }}>
+                  {inference.health_status === 'critical'
+                    ? 'Escalate immediately to maintenance dispatch. Prepare for controlled line halt if vibration persists.'
+                    : inference.health_status === 'warning'
+                    ? 'Schedule a field technician inspection during the next routine maintenance window.'
+                    : 'No corrective action needed. Continue routine plant monitoring.'}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '10px', padding: '6px 10px', background: 'var(--bg-card)', borderRadius: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+              ⚠️ <em>Safety Notice: Sensor readings and ML predictions are indicators, not guarantees of mechanical safety. Follow plant Lockout/Tagout (LOTO) protocols before servicing.</em>
             </div>
           </div>
 

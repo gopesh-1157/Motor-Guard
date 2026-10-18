@@ -79,3 +79,18 @@ async def test_health_ready_dev_degraded_when_mongodb_down():
         assert data["status"] == "degraded"
         assert data["dependencies"]["mongodb"]["status"] == "unavailable"
         assert data["dependencies"]["mqtt_broker"]["status"] == "unavailable"
+
+
+def test_security_headers_present():
+    """Verify security headers are applied to HTTP responses."""
+    response = client.get("/api/v1/health/live")
+    assert response.status_code == 200
+    headers = response.headers
+    assert "Content-Security-Policy" in headers
+    assert "default-src 'self'" in headers["Content-Security-Policy"]
+    assert headers["X-Frame-Options"] == "DENY"
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["X-XSS-Protection"] == "1; mode=block"
+    assert headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert headers["Server"] == "MotorGuard-Gateway"
+

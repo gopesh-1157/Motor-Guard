@@ -38,3 +38,26 @@ def test_production_settings_validation():
         MQTT_PASSWORD="secure_broker_password",
     )
     assert valid_prod.ENVIRONMENT == "production"
+    assert valid_prod.DEBUG is False
+    assert valid_prod.ENABLE_DOCS is False
+
+    # Production with DEBUG=True must fail
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="a" * 40,
+            MQTT_PASSWORD="secure_broker_password",
+            DEBUG=True,
+        )
+    assert "DEBUG must be set to False in production" in str(exc_info.value)
+
+    # Production with wildcard CORS must fail
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            ENVIRONMENT="production",
+            SECRET_KEY="a" * 40,
+            MQTT_PASSWORD="secure_broker_password",
+            CORS_ORIGINS="*",
+        )
+    assert "Explicit CORS_ORIGINS must be configured in production" in str(exc_info.value)
+

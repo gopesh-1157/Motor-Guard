@@ -53,6 +53,39 @@ def create_access_token(
     return encoded_jwt
 
 
+def validate_password_strength(password: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate password entropy:
+    - Production: >=10 chars, uppercase, lowercase, digit, special character.
+    - Development/Test: >=8 chars, letters, and at least one digit or symbol.
+    """
+    import re
+    is_prod = settings.ENVIRONMENT.lower() == "production"
+
+    if is_prod:
+        if len(password) < 10:
+            return False, "Production password must be at least 10 characters in length."
+        if not re.search(r"[A-Z]", password):
+            return False, "Production password must contain at least one uppercase letter."
+        if not re.search(r"[a-z]", password):
+            return False, "Production password must contain at least one lowercase letter."
+        if not re.search(r"[0-9]", password):
+            return False, "Production password must contain at least one digit."
+        if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+            return False, "Production password must contain at least one special symbol."
+        return True, None
+
+    # Development & test baseline
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters in length."
+    if not re.search(r"[a-zA-Z]", password):
+        return False, "Password must contain alphabetic characters."
+    if not re.search(r"[0-9!@#$%^&*(),.?\":{}|<>]", password):
+        return False, "Password must contain at least one digit or special symbol."
+    return True, None
+
+
+
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """Decode and validate a JWT access token."""
     try:
@@ -64,3 +97,4 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except JWTError:
         return None
+

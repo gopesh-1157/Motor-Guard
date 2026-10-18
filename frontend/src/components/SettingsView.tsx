@@ -41,9 +41,13 @@ export const SettingsView: FC = () => {
     setSimInjecting(true)
     setSimFeedback(null)
     try {
+      const token = localStorage.getItem('motorguard_auth_token')
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
       const res = await fetch('/api/v1/simulator/inject', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           motor_id: simMotor,
           device_id: simMotor === 'MTR-775-002' ? 'sim-node-002' : 'sim-node-003',
@@ -53,6 +57,8 @@ export const SettingsView: FC = () => {
       if (res.ok) {
         const data = await res.json()
         setSimFeedback(`Condition '${simCondition}' applied to ${simMotor} -> Status: ${data.health_status.toUpperCase()}`)
+      } else if (res.status === 401 || res.status === 403) {
+        setSimFeedback('Simulator injection requires Manager or Admin security clearance.')
       } else {
         setSimFeedback(`Simulator error (HTTP ${res.status})`)
       }
@@ -63,6 +69,7 @@ export const SettingsView: FC = () => {
       setTimeout(() => setSimFeedback(null), 4000)
     }
   }
+
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

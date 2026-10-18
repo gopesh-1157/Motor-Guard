@@ -65,10 +65,16 @@ export function useTelemetry() {
     })
   }, [])
 
+  // Helper to extract bearer token for authenticated requests
+  const getAuthHeaders = useCallback((): Record<string, string> => {
+    const token = localStorage.getItem('motorguard_auth_token')
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }, [])
+
   // Fetch registered motors from backend registry
   const refreshMotors = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/motors')
+      const res = await fetch('/api/v1/motors', { headers: getAuthHeaders() })
       if (!res.ok) return
       const registeredList = await res.json()
       if (Array.isArray(registeredList)) {
@@ -108,7 +114,7 @@ export function useTelemetry() {
     } catch {
       // Backend not reached or offline
     }
-  }, [])
+  }, [getAuthHeaders])
 
   // Initial REST fetch to seed recent telemetry & registered motors
   useEffect(() => {
@@ -117,8 +123,9 @@ export function useTelemetry() {
     async function initData() {
       try {
         await refreshMotors()
-        const res = await fetch('/api/v1/telemetry/recent?limit=100')
+        const res = await fetch('/api/v1/telemetry/recent?limit=100', { headers: getAuthHeaders() })
         if (!res.ok) return
+
         const data = await res.json()
         const items = Array.isArray(data) ? data : (Array.isArray(data?.telemetry) ? data.telemetry : [])
         if (items.length > 0 && isMounted) {

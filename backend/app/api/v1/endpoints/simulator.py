@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from backend.app.db.mongodb import db_manager
 from backend.app.schemas.telemetry import TelemetryMessage
+from backend.app.schemas.user import UserOut
+from backend.app.core.auth import get_current_active_user, require_roles
 from backend.app.services.telemetry_ingestion import TelemetryIngestionService
 from backend.app.services.alert_service import AlertService
 from backend.app.api.v1.endpoints.websocket import ws_manager
@@ -51,7 +53,10 @@ class SimulatorStatusResponse(BaseModel):
 
 
 @router.get("/status", response_model=SimulatorStatusResponse)
-async def get_simulator_status():
+async def get_simulator_status(
+    current_user: UserOut = Depends(get_current_active_user),
+):
+
     """Return current simulator configuration and available fault injection profiles."""
     return SimulatorStatusResponse(
         active_profile=_active_profile,
@@ -109,10 +114,14 @@ async def _process_and_broadcast_payload(payload: dict) -> bool:
 
 
 @router.post("/inject")
-async def inject_fault_condition(req: SimulatorInjectRequest):
+async def inject_fault_condition(
+    req: SimulatorInjectRequest,
+    current_user: UserOut = Depends(require_roles("Admin", "Manager")),
+):
     """
     Inject a simulated condition (healthy, warning, critical, or sensor fault)
     generating a compliant v1.0.0 telemetry packet through the pipeline.
+    Requires Admin or Manager clearance.
     """
     global _simulator_seq, _active_profile
     _simulator_seq += 1

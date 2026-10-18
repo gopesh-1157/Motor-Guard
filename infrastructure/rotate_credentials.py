@@ -9,10 +9,8 @@ import os
 import sys
 import secrets
 import re
+import bcrypt
 from pymongo import MongoClient
-from passlib.context import CryptContext
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "motorguard_db")
@@ -47,12 +45,15 @@ def rotate_user_password(username: str, new_password: str) -> bool:
 
     client = MongoClient(MONGO_URI)
     db = client[MONGO_DB_NAME]
-    hashed = pwd_context.hash(new_password)
+    pwd_bytes = new_password.encode("utf-8")[:72]
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
     result = db.users.update_one(
         {"username": username},
         {"$set": {"password_hash": hashed}}
     )
+
 
     if result.matched_count == 0:
         print(f"[WARN] User '{username}' not found in MongoDB database.")

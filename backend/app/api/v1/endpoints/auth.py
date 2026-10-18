@@ -85,3 +85,12 @@ async def list_users(
 ):
     """List system users (Requires 'Admin' role)."""
     return await user_service.list_users(skip=skip, limit=limit)
+
+
+@router.get("/technicians", response_model=List[UserOut])
+async def list_technicians(
+    current_user: UserOut = Depends(require_roles("Admin", "Manager")),
+    user_service: UserService = Depends(get_user_service),
+):
+    """List eligible technicians for work order assignment (Requires 'Admin' or 'Manager' role)."""
+    return await user_service.list_technicians()
