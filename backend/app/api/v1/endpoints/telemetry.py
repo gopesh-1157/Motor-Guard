@@ -5,8 +5,11 @@ Provides query endpoints for retrieving persisted telemetry data from MongoDB.
 """
 
 import logging
+import secrets
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Header, Request, status
+from backend.app.config import settings
+from backend.app.core.security import decode_access_token
 from backend.app.db.mongodb import db_manager
 from backend.app.schemas.telemetry import TelemetryMessage
 from backend.app.schemas.user import UserOut
@@ -14,6 +17,36 @@ from backend.app.core.auth import get_current_active_user
 
 logger = logging.getLogger("motorguard.api.telemetry")
 router = APIRouter()
+
+
+async def validate_telemetry_ingest_auth(
+    request: Request,
+    x_device_api_key: Optional[str] = Header(None, alias="X-Device-API-Key"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> str:
+    """
+    Dual-authentication dependency for telemetry ingestion:
+    1. Validates edge device/gateway pre-shared API key (X-Device-API-Key or X-API-Key).
+    2. Validates authenticated user Bearer JWT token (for browser relays / simulator / operators).
+    """
+    key = x_device_api_key or x_api_key
+    if key and settings.GATEWAY_INGEST_SECRET:
+        if secrets.compare_digest(key, settings.GATEWAY_INGEST_SECRET):
+            return "device_api_key"
+
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        from backend.app.core.auth import verify_token_user
+        user = await verify_token_user(token, allowed_roles=["Admin", "Manager", "Technician", "Operator"])
+        if user and user.is_active:
+            return f"user:{user.username}"
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing credentials. Telemetry ingestion requires a valid X-Device-API-Key or Bearer token.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def sanitize_identifier(val: Optional[str]) -> Optional[str]:
@@ -27,7 +60,10 @@ def sanitize_identifier(val: Optional[str]) -> Optional[str]:
 
 
 @router.post("/ingest", summary="Direct Telemetry Ingestion")
-async def ingest_telemetry_event(message: TelemetryMessage):
+async def ingest_telemetry_event(
+    message: TelemetryMessage,
+    auth_identity: str = Depends(validate_telemetry_ingest_auth),
+):
     """Direct HTTP ingestion endpoint for ESP32 AP mode or HTTP bridges."""
     from backend.app.main import _ingest_and_broadcast
     inserted = await _ingest_and_broadcast(message.model_dump())

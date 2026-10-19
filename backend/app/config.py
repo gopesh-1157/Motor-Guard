@@ -47,7 +47,8 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = Field(default="HS256", description="JWT signing algorithm")
     DEFAULT_OVERCURRENT_LIMIT_A: float = Field(default=4.0, description="Overcurrent limit in Amperes")
     DEFAULT_MAX_TEMP_C: float = Field(default=50.0, description="Thermal warning limit in Celsius")
-    DEFAULT_MAX_VIBRATION_G: float = Field(default=0.200, description="Vibration RMS warning limit in g")
+    DEFAULT_MAX_VIBRATION_G: float = Field(default=0.100, description="Vibration RMS warning limit in g (ISO 10816 Class I/II)")
+    DEFAULT_MAX_PEAK_VIBRATION_G: float = Field(default=0.350, description="Peak dynamic vibration shock limit in g")
 
     # Security & Hardening Controls
     DEBUG: bool = Field(default=False, description="Enable debug mode (strictly false in production)")
@@ -59,6 +60,8 @@ class Settings(BaseSettings):
     RATELIMIT_ENABLED: bool = Field(default=True, description="Enable sliding-window rate limiting")
     RATELIMIT_LOGIN_PER_MIN: int = Field(default=10, description="Max login attempts per minute per IP")
     RATELIMIT_GENERAL_PER_MIN: int = Field(default=180, description="Max general API requests per minute per IP")
+    TRUSTED_PROXIES: str = Field(default="127.0.0.1,::1,testclient", description="Comma-separated list of trusted reverse proxy IPs")
+    GATEWAY_INGEST_SECRET: str = Field(default="motorguard-dev-ingest-key", description="Shared secret for hardware/bridge telemetry ingestion")
 
     # App Metadata
     APP_VERSION: str = "1.0.0"
@@ -79,6 +82,12 @@ class Settings(BaseSettings):
             return []
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip() and origin.strip() != "*"]
 
+    @property
+    def trusted_proxies_list(self) -> List[str]:
+        if not self.TRUSTED_PROXIES:
+            return ["127.0.0.1", "::1"]
+        return [ip.strip() for ip in self.TRUSTED_PROXIES.split(",") if ip.strip()]
+
     @model_validator(mode="after")
     def validate_production_requirements(self) -> "Settings":
         # Validate MQTT TLS configuration consistency
@@ -96,7 +105,7 @@ class Settings(BaseSettings):
                 f"Cloud MQTT broker '{self.MQTT_BROKER_HOST}' requires secure TLS (MQTT_USE_TLS=True)."
             )
 
-        if self.ENVIRONMENT == "production":
+        if self.ENVIRONMENT.strip().lower() == "production":
             if self.DEBUG:
                 raise ValueError("DEBUG must be set to False in production")
             if (
@@ -106,6 +115,25 @@ class Settings(BaseSettings):
             ):
                 raise ValueError(
                     "SECRET_KEY must be a secure random string of at least 32 characters in production"
+                )
+            if (
+                not self.GATEWAY_INGEST_SECRET
+                or self.GATEWAY_INGEST_SECRET == "motorguard-dev-ingest-key"
+                or len(self.GATEWAY_INGEST_SECRET) < 16
+            ):
+                raise ValueError(
+                    "GATEWAY_INGEST_SECRET must be configured with a secure random secret of at least 16 characters in production"
+                )
+            if not self.ADMIN_INITIAL_PASSWORD:
+                raise ValueError(
+                    "ADMIN_INITIAL_PASSWORD must be explicitly configured in production; fallback default is strictly prohibited"
+                )
+            if (
+                self.ADMIN_INITIAL_PASSWORD.strip() in ("adminpassword123", "password", "admin123456", "admin")
+                or len(self.ADMIN_INITIAL_PASSWORD.strip()) < 12
+            ):
+                raise ValueError(
+                    "ADMIN_INITIAL_PASSWORD in production must be at least 12 characters and cannot use default passwords"
                 )
             if not self.MQTT_PASSWORD:
                 raise ValueError("MQTT_PASSWORD must be configured in production")

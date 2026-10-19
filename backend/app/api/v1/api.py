@@ -9,6 +9,7 @@ from backend.app.api.v1.endpoints import (
     motors,
     devices,
     simulator,
+    settings,
 )
 
 api_router = APIRouter()
@@ -21,5 +22,6 @@ api_router.include_router(maintenance.router, prefix="/maintenance", tags=["main
 api_router.include_router(motors.router, prefix="/motors", tags=["motors"])
 api_router.include_router(devices.router, prefix="/devices", tags=["devices"])
 api_router.include_router(simulator.router, prefix="/simulator", tags=["simulator"])
+api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 
 

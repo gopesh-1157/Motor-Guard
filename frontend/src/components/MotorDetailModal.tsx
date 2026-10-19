@@ -9,9 +9,10 @@ import {
   Check,
   FileSpreadsheet,
 } from 'lucide-react'
-import type { MotorState, ChartMetric } from '../types'
+import type { MotorState, ChartMetric, HealthThresholds, EffectiveThresholds } from '../types'
 import { Motor3DViewer } from './Motor3DViewer'
 import { EChartPanel } from './EChartPanel'
+import { FFTSpectrumViewer } from './FFTSpectrumViewer'
 
 interface MotorDetailModalProps {
   motor: MotorState | null
@@ -121,6 +122,15 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
       ? currSeries
       : vibSeries
 
+  const th = (motor?.effective_thresholds || motor?.thresholds || {}) as Partial<EffectiveThresholds & HealthThresholds>
+  const tempWarn = th.temperature_warning_c ?? 50.0
+  const tempCrit = th.temperature_critical_c ?? 75.0
+  const currWarn = th.current_warning_a ?? 3.0
+  const currCrit = th.current_critical_a ?? 4.0
+  const vibWarn = th.vibration_warning_g ?? 0.200
+  const vibCrit = th.vibration_critical_g ?? 0.800
+  const calibStatus = th.calibration_status ?? 'provisional'
+
   return (
     <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 100 }}>
       <div
@@ -157,7 +167,23 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 ● {connectionStatus.toUpperCase()}
               </span>
               <span className={`badge-status ${inference.health_status}`}>
-                DIAGNOSIS: {inference.health_status.toUpperCase()}
+                AI: {inference.health_status.toUpperCase()}
+              </span>
+              {latest.safety && (
+                <span className={`badge-status ${latest.safety.status.toLowerCase()}`}>
+                  SAFETY: {latest.safety.status}
+                </span>
+              )}
+              <span
+                className="badge-status"
+                style={{
+                  background: calibStatus === 'measured_and_calibrated' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                  color: calibStatus === 'measured_and_calibrated' ? '#10b981' : '#f59e0b',
+                  border: '1px solid currentColor',
+                }}
+                title={th.provenance || 'Threshold provenance configuration'}
+              >
+                CALIBRATION: {calibStatus.replace(/_/g, ' ').toUpperCase()}
               </span>
             </div>
 
@@ -206,7 +232,7 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
               style={{ cursor: 'pointer', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}
             >
               <div className="metric-header">
-                <span className="metric-label" style={{ fontSize: '11px' }}>Temperature</span>
+                <span className="metric-label" style={{ fontSize: '11px' }}>Ambient Air Temp (DHT11)</span>
                 <Thermometer size={14} color="var(--sensor-temp)" />
               </div>
               <div className="metric-value-row">
@@ -216,17 +242,17 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 <span className="metric-unit">°C</span>
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Warn: 50.0°C • Crit: 75.0°C</span>
+                <span>Warn: {tempWarn.toFixed(1)}°C • Crit: {tempCrit.toFixed(1)}°C</span>
                 <span className={`status-pill ${sensor_status.temperature.toLowerCase()}`}>{sensor_status.temperature}</span>
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-main)', background: 'var(--bg-subtle)', padding: '6px', borderRadius: '4px', lineHeight: 1.3 }}>
                 {sensors.temperature_c != null ? (
-                  sensors.temperature_c > 75.0 ? (
-                    <span style={{ color: 'var(--status-critical)' }}>Critical: {sensors.temperature_c.toFixed(1)}°C exceeds the 75.0°C emergency shutdown limit.</span>
-                  ) : sensors.temperature_c > 50.0 ? (
-                    <span style={{ color: 'var(--status-warning)' }}>Warning: {sensors.temperature_c.toFixed(1)}°C exceeds the configured 50.0°C warning threshold.</span>
+                  sensors.temperature_c > tempCrit ? (
+                    <span style={{ color: 'var(--status-critical)' }}>Critical: {sensors.temperature_c.toFixed(1)}°C exceeds {tempCrit.toFixed(1)}°C emergency shutdown limit.</span>
+                  ) : sensors.temperature_c > tempWarn ? (
+                    <span style={{ color: 'var(--status-warning)' }}>Warning: {sensors.temperature_c.toFixed(1)}°C exceeds {tempWarn.toFixed(1)}°C warning threshold.</span>
                   ) : (
-                    <span>Temperature: {sensors.temperature_c.toFixed(1)}°C. This is below the configured 50.0°C warning threshold.</span>
+                    <span>Ambient Air: {sensors.temperature_c.toFixed(1)}°C (below {tempWarn.toFixed(1)}°C warning baseline). Case probe: Unconfigured.</span>
                   )
                 ) : 'Sensor disconnected.'}
               </div>
@@ -249,17 +275,17 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 <span className="metric-unit">A</span>
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Trip Limit: 4.00 A</span>
+                <span>Warn: {currWarn.toFixed(2)} A • Trip: {currCrit.toFixed(2)} A</span>
                 <span className={`status-pill ${sensor_status.current.toLowerCase()}`}>{sensor_status.current}</span>
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-main)', background: 'var(--bg-subtle)', padding: '6px', borderRadius: '4px', lineHeight: 1.3 }}>
                 {sensors.current_a != null ? (
-                  sensors.current_a > 4.00 ? (
-                    <span style={{ color: 'var(--status-critical)' }}>Overload: {sensors.current_a.toFixed(2)} A exceeds the configured 4.00 A trip limit.</span>
-                  ) : sensors.current_a > 3.00 ? (
-                    <span style={{ color: 'var(--status-warning)' }}>Current: {sensors.current_a.toFixed(2)} A is elevated near full-load capacity.</span>
+                  sensors.current_a > currCrit ? (
+                    <span style={{ color: 'var(--status-critical)' }}>Overload: {sensors.current_a.toFixed(2)} A exceeds configured {currCrit.toFixed(2)} A trip limit.</span>
+                  ) : sensors.current_a > currWarn ? (
+                    <span style={{ color: 'var(--status-warning)' }}>Current: {sensors.current_a.toFixed(2)} A exceeds {currWarn.toFixed(2)} A warning threshold.</span>
                   ) : (
-                    <span>Current: {sensors.current_a.toFixed(2)} A. This is below the configured 4.00 A warning threshold.</span>
+                    <span>Current: {sensors.current_a.toFixed(2)} A (within {currWarn.toFixed(2)} A operational range).</span>
                   )
                 ) : 'Sensor disconnected.'}
               </div>
@@ -272,7 +298,7 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
               style={{ cursor: 'pointer', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}
             >
               <div className="metric-header">
-                <span className="metric-label" style={{ fontSize: '11px' }}>3-Axis Dynamic Vibration</span>
+                <span className="metric-label" style={{ fontSize: '11px' }}>Dynamic Vibration RMS</span>
                 <Activity size={14} color="var(--sensor-vib)" />
               </div>
               <div className="metric-value-row">
@@ -282,17 +308,17 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 <span className="metric-unit">g RMS</span>
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>ISO 10816: 0.200 g RMS</span>
+                <span>Warn: {vibWarn.toFixed(3)} g • Crit: {vibCrit.toFixed(3)} g</span>
                 <span className={`status-pill ${sensor_status.vibration.toLowerCase()}`}>{sensor_status.vibration}</span>
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-main)', background: 'var(--bg-subtle)', padding: '6px', borderRadius: '4px', lineHeight: 1.3 }}>
                 {sensors.vibration_g_rms != null ? (
-                  sensors.vibration_g_rms > 0.400 ? (
-                    <span style={{ color: 'var(--status-critical)' }}>Critical: {sensors.vibration_g_rms.toFixed(3)} g RMS indicates severe bearing or coupling distress.</span>
-                  ) : sensors.vibration_g_rms > 0.200 ? (
-                    <span style={{ color: 'var(--status-warning)' }}>Warning: {sensors.vibration_g_rms.toFixed(3)} g RMS exceeds ISO 10816 (0.200 g).</span>
+                  sensors.vibration_g_rms > vibCrit ? (
+                    <span style={{ color: 'var(--status-critical)' }}>Critical: {sensors.vibration_g_rms.toFixed(3)} g RMS exceeds {vibCrit.toFixed(3)} g limit (bearing/mount distress).</span>
+                  ) : sensors.vibration_g_rms > vibWarn ? (
+                    <span style={{ color: 'var(--status-warning)' }}>Warning: {sensors.vibration_g_rms.toFixed(3)} g RMS exceeds {vibWarn.toFixed(3)} g warning threshold.</span>
                   ) : (
-                    <span>Vibration: {sensors.vibration_g_rms.toFixed(3)} g RMS. This is below the configured 0.200 g warning threshold.</span>
+                    <span>Dynamic Vibration: {sensors.vibration_g_rms.toFixed(3)} g RMS (within {vibWarn.toFixed(3)} g limit).</span>
                   )
                 ) : 'Sensor disconnected.'}
               </div>
@@ -374,9 +400,9 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 <strong style={{ color: 'var(--text-muted)' }}>What was detected:</strong>
                 <div style={{ color: 'var(--text-main)', marginTop: '2px' }}>
                   {inference.health_status === 'critical'
-                    ? `Critical fault: ${sensors.vibration_g_rms && sensors.vibration_g_rms > 0.4 ? 'Excessive bearing vibration' : sensors.temperature_c && sensors.temperature_c > 75 ? 'Overtemperature spike' : 'Multi-sensor anomaly'} flagged by TinyML with ${(inference.confidence * 100).toFixed(0)}% confidence.`
+                    ? `Critical fault: ${sensors.vibration_g_rms && sensors.vibration_g_rms > vibCrit ? 'Excessive dynamic vibration' : sensors.temperature_c && sensors.temperature_c > tempCrit ? 'Ambient thermal spike' : 'Multi-sensor anomaly'} flagged by TinyML (${(inference.confidence * 100).toFixed(0)}% confidence).`
                     : inference.health_status === 'warning'
-                    ? `Warning threshold exceeded on ${sensors.temperature_c && sensors.temperature_c > 50 ? 'thermal sensor (DHT11)' : 'vibration sensor (ADXL345)'}.`
+                    ? `Warning threshold exceeded on ${sensors.temperature_c && sensors.temperature_c > tempWarn ? 'ambient thermal sensor (DHT11)' : 'vibration sensor (ADXL345)'}.`
                     : 'All physical sensor parameters (Temperature, Current, Vibration RMS) within baseline.'}
                 </div>
               </div>
@@ -453,8 +479,8 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 deviceId={device_id}
                 data={activeSeries}
                 timeRange={timeRange === '15m' ? '15m' : timeRange === '24h' ? '24h' : '1h'}
-                thresholdWarn={activeChartMetric === 'temperature' ? 50 : activeChartMetric === 'current' ? 3.0 : 0.2}
-                thresholdCrit={activeChartMetric === 'temperature' ? 75 : activeChartMetric === 'current' ? 4.0 : 0.8}
+                thresholdWarn={activeChartMetric === 'temperature' ? tempWarn : activeChartMetric === 'current' ? currWarn : vibWarn}
+                thresholdCrit={activeChartMetric === 'temperature' ? tempCrit : activeChartMetric === 'current' ? currCrit : vibCrit}
                 isPrimary={true}
               />
             </div>
@@ -589,6 +615,11 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Advanced Predictive Maintenance & FFT Spectral Diagnostics */}
+          <div className="card" style={{ padding: '16px' }}>
+            <FFTSpectrumViewer motor={motor} />
           </div>
 
           {/* Diagnostics and Raw Telemetry JSON */}

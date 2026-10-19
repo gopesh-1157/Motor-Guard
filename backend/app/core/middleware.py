@@ -22,7 +22,9 @@ Provides:
 
 import time
 import logging
+import ipaddress
 from collections import defaultdict
+from typing import Dict, List, Tuple
 from typing import Dict, List, Tuple
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -137,14 +139,39 @@ rate_limiter = RateLimiter()
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Enforces IP-based rate limiting on sensitive API endpoints."""
 
+    def _is_trusted_peer(self, peer_ip: str, trusted_list: list) -> bool:
+        if peer_ip in trusted_list:
+            return True
+        try:
+            peer_addr = ipaddress.ip_address(peer_ip)
+            for entry in trusted_list:
+                if "/" in entry:
+                    try:
+                        if peer_addr in ipaddress.ip_network(entry, strict=False):
+                            return True
+                    except ValueError:
+                        continue
+        except ValueError:
+            pass
+        return False
+
     def _get_client_ip(self, request: Request) -> str:
-        # Check X-Forwarded-For if behind a reverse proxy (take first IP)
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        if request.client and request.client.host:
-            return request.client.host
-        return "127.0.0.1"
+        client_host = request.client.host if request.client else "127.0.0.1"
+        trusted_proxies = getattr(settings, "trusted_proxies_list", ["127.0.0.1", "::1", "testclient"])
+
+        # Strictly verify direct peer is in trusted proxies before honoring forwarded headers
+        if self._is_trusted_peer(client_host, trusted_proxies):
+            real_ip = request.headers.get("X-Real-IP")
+            if real_ip and real_ip.strip():
+                return real_ip.strip()
+
+            forwarded = request.headers.get("X-Forwarded-For")
+            if forwarded:
+                parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+                if parts:
+                    return parts[0]
+
+        return client_host
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # Skip rate limiting if disabled in settings (e.g. testing)

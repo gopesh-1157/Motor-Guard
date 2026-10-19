@@ -5,7 +5,7 @@ MotorGuard — Motor Specification & Configuration Service
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from fastapi import HTTPException, status
 
@@ -100,21 +100,164 @@ class MotorService:
         logger.info("Created motor '%s' (%s) by '%s'", data.motor_id, data.name, username)
         return MotorOut(**doc)
 
+    async def get_effective_thresholds(self, motor_doc: Union[dict, str, None] = None) -> dict:
+        """
+        Resolves operational thresholds in priority order:
+        1. Motor-specific thresholds in motor_doc (if configured).
+        2. Gateway operational limits saved in 'system_settings' collection.
+        3. Built-in defaults.
+        """
+        from backend.app.config import settings
+        defaults = {
+            "current_warning_a": getattr(settings, "DEFAULT_OVERCURRENT_LIMIT_A", 4.0) * 0.85,
+            "current_critical_a": getattr(settings, "DEFAULT_OVERCURRENT_LIMIT_A", 4.0),
+            "temperature_warning_c": getattr(settings, "DEFAULT_MAX_TEMP_C", 50.0),
+            "temperature_critical_c": 75.0,
+            "vibration_warning_g": getattr(settings, "DEFAULT_MAX_VIBRATION_G", 0.100),
+            "vibration_critical_g": 0.400,
+            "peak_vibration_g": getattr(settings, "DEFAULT_MAX_PEAK_VIBRATION_G", 0.350),
+            "stale_timeout_sec": getattr(settings, "DEVICE_STALE_TIMEOUT_SEC", 15),
+            "offline_timeout_sec": getattr(settings, "DEVICE_OFFLINE_TIMEOUT_SEC", 35),
+            "provenance": "builtin_config_default",
+            "calibration_status": "provisional",
+        }
+
+        if self.db is not None:
+            try:
+                sys_doc = await self.db["system_settings"].find_one({"_id": "gateway_operational_limits"})
+                if isinstance(sys_doc, dict):
+                    defaults["provenance"] = "gateway_system_settings"
+                    for k in [
+                        "current_warning_a", "current_critical_a",
+                        "temperature_warning_c", "temperature_critical_c",
+                        "vibration_warning_g", "vibration_critical_g",
+                        "peak_vibration_g", "stale_timeout_sec", "offline_timeout_sec"
+                    ]:
+                        if k in sys_doc and sys_doc[k] is not None:
+                            defaults[k] = float(sys_doc[k])
+            except Exception as e:
+                logger.debug("Could not fetch gateway operational limits: %s", e)
+
+        # If motor_doc is a string motor_id, query collection
+        if isinstance(motor_doc, str):
+            motor_id_str = motor_doc
+            if self.collection is not None:
+                motor_doc = await self.collection.find_one({"motor_id": motor_id_str}, {"_id": 0})
+            elif self.db is not None:
+                motor_doc = await self.db["motors"].find_one({"motor_id": motor_id_str}, {"_id": 0})
+
+        if isinstance(motor_doc, dict) and "thresholds" in motor_doc and isinstance(motor_doc["thresholds"], dict):
+            m_th = motor_doc["thresholds"]
+            overridden = False
+            for k in [
+                "current_warning_a", "current_critical_a",
+                "temperature_warning_c", "temperature_critical_c",
+                "vibration_warning_g", "vibration_critical_g",
+                "peak_vibration_g",
+            ]:
+                if k in m_th and m_th[k] is not None:
+                    defaults[k] = float(m_th[k])
+                    overridden = True
+            if "device_offline_timeout_sec" in m_th and m_th["device_offline_timeout_sec"] is not None:
+                defaults["offline_timeout_sec"] = float(m_th["device_offline_timeout_sec"])
+            if "calibration_status" in m_th and m_th["calibration_status"]:
+                defaults["calibration_status"] = m_th["calibration_status"]
+            defaults["provenance"] = m_th.get("provenance") or ("motor_asset_override" if overridden else defaults["provenance"])
+
+        return defaults
+
+    async def calculate_motor_health(
+        self,
+        motor_id: str,
+        motor_doc: dict,
+        last_telem: Optional[dict] = None,
+        effective_thresholds: Optional[dict] = None,
+    ) -> str:
+        """
+        Calculates motor health status ('healthy', 'warning', 'critical', 'unknown'):
+        1. Active alerts in 'alerts' collection (if CRITICAL -> critical, if WARNING -> warning).
+        2. Physical sensors in latest telemetry evaluated against effective operational thresholds.
+        3. TinyML Edge Impulse inference health_status.
+        """
+        if self.db is not None:
+            try:
+                active_critical = await self.db["alerts"].find_one({
+                    "motor_id": motor_id,
+                    "state": "ACTIVE",
+                    "severity": "CRITICAL",
+                })
+                if active_critical:
+                    return "critical"
+
+                active_warning = await self.db["alerts"].find_one({
+                    "motor_id": motor_id,
+                    "state": "ACTIVE",
+                    "severity": "WARNING",
+                })
+                if active_warning:
+                    return "warning"
+            except Exception as e:
+                logger.debug("Error checking active alerts for motor %s: %s", motor_id, e)
+
+        if last_telem:
+            sensors = last_telem.get("sensors", {})
+            sensor_status = last_telem.get("sensor_status", {})
+            inf = last_telem.get("inference", {})
+            if effective_thresholds is None:
+                effective_thresholds = await self.get_effective_thresholds(motor_doc)
+
+            temp = sensors.get("temperature_c")
+            curr = sensors.get("current_a")
+            vib = sensors.get("vibration_g_rms")
+
+            # Check if all sensor readings are missing / disconnected
+            if temp is None and curr is None and vib is None:
+                return "unknown"
+
+            # Check for disconnected sensor status
+            if (
+                sensor_status.get("current") in ("DISCONNECTED", "UNAVAILABLE", "OUT_OF_RANGE")
+                or sensor_status.get("vibration") in ("DISCONNECTED", "UNAVAILABLE", "OUT_OF_RANGE")
+            ):
+                return "critical"
+            if sensor_status.get("temperature") in ("DISCONNECTED", "UNAVAILABLE", "OUT_OF_RANGE"):
+                return "warning"
+
+            if (
+                (temp is not None and temp >= effective_thresholds["temperature_critical_c"])
+                or (curr is not None and curr >= effective_thresholds["current_critical_a"])
+                or (vib is not None and vib >= effective_thresholds["vibration_critical_g"])
+            ):
+                return "critical"
+
+            if (
+                (temp is not None and temp >= effective_thresholds["temperature_warning_c"])
+                or (curr is not None and curr >= effective_thresholds["current_warning_a"])
+                or (vib is not None and vib >= effective_thresholds["vibration_warning_g"])
+            ):
+                return "warning"
+
+            if inf.get("health_status") in ("healthy", "warning", "critical"):
+                return inf["health_status"]
+
+        return motor_doc.get("health_status", "unknown")
+
     async def get_motor(self, motor_id: str) -> Optional[MotorOut]:
         """Retrieve single motor asset by ID with live telemetry state."""
         doc = await self.collection.find_one({"motor_id": motor_id}, {"_id": 0})
         if not doc:
             return None
 
-        # Enhance with live telemetry state if available
+        # Enhance with live telemetry state and effective thresholds
         last_telem = await self.telemetry_collection.find_one(
             {"motor_id": motor_id},
             {"_id": 0},
             sort=[("timestamp", -1)],
         )
+        thresholds = await self.get_effective_thresholds(doc)
+        doc["effective_thresholds"] = thresholds
+        doc["health_status"] = await self.calculate_motor_health(motor_id, doc, last_telem, thresholds)
         if last_telem:
-            inf = last_telem.get("inference", {})
-            doc["health_status"] = inf.get("health_status", doc.get("health_status", "unknown"))
             doc["operational_state"] = "RUNNING" if doc.get("status") == "active" else "OFFLINE"
 
         return MotorOut(**self._normalize_doc(doc))
@@ -130,15 +273,16 @@ class MotorService:
 
         results = []
         for d in docs:
-            # Sync health state with latest telemetry
+            # Sync health state with latest telemetry and effective thresholds
             last_telem = await self.telemetry_collection.find_one(
                 {"motor_id": d["motor_id"]},
                 {"_id": 0},
                 sort=[("timestamp", -1)],
             )
+            m_eff = await self.get_effective_thresholds(d)
+            d["effective_thresholds"] = m_eff
+            d["health_status"] = await self.calculate_motor_health(d["motor_id"], d, last_telem, m_eff)
             if last_telem:
-                inf = last_telem.get("inference", {})
-                d["health_status"] = inf.get("health_status", d.get("health_status", "unknown"))
                 d["operational_state"] = "RUNNING" if d.get("status") == "active" else "OFFLINE"
 
             results.append(MotorOut(**self._normalize_doc(d)))

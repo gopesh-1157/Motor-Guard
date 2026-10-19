@@ -89,12 +89,15 @@ export const EChartPanel: FC<EChartPanelProps> = ({
     ]
   }, [metric])
 
-  // Filter data by time range
+  // Filter data by time range anchored deterministically to the telemetry timeline
   const filteredData = useMemo(() => {
     if (!data || data.length === 0) return []
     if (timeRange === 'all') return data
 
-    const now = Date.now()
+    const latestItem = data[data.length - 1]
+    const referenceTime = latestItem?.timestamp ? new Date(latestItem.timestamp).getTime() : 0
+    if (!referenceTime) return data
+
     const windowsMs: Record<TimeRangeOption, number> = {
       '15m': 15 * 60 * 1000,
       '1h': 60 * 60 * 1000,
@@ -104,7 +107,7 @@ export const EChartPanel: FC<EChartPanelProps> = ({
       all: Infinity,
     }
 
-    const cutoff = now - (windowsMs[timeRange] || Infinity)
+    const cutoff = referenceTime - (windowsMs[timeRange] || Infinity)
     return data.filter((d) => {
       try {
         return new Date(d.timestamp).getTime() >= cutoff

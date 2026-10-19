@@ -13,10 +13,104 @@ import {
   Clock,
   ExternalLink,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react'
-import type { MotorState, ChartMetric } from '../types'
+import type { MotorState, ChartMetric, AlertItem } from '../types'
 import { EChartPanel } from './EChartPanel'
 import { Motor3DViewer } from './Motor3DViewer'
+
+interface MotorAlertEvaluation {
+  severity: 'critical' | 'warning' | 'healthy' | 'stale' | 'offline'
+  label: 'CRITICAL' | 'WARNING' | 'HEALTHY' | 'STALE' | 'OFFLINE'
+  activeReason?: string
+}
+
+function getLiveMotorAlertStatus(
+  motor: MotorState,
+  alerts?: AlertItem[],
+  freshnessSec: number = 0
+): MotorAlertEvaluation {
+  // 1. Check Stale / Offline timeout status
+  const isOffline = motor.connectionStatus === 'offline' || (motor.lastSeen > 0 && freshnessSec > 35)
+  const isStale = motor.connectionStatus === 'stale' || (motor.lastSeen > 0 && freshnessSec > 15)
+
+  // 2. Active backend alerts for this specific motor
+  const motorActiveAlerts = alerts
+    ? alerts.filter((a) => a.motor_id === motor.motor_id && a.state === 'ACTIVE')
+    : []
+
+  const criticalBackendAlert = motorActiveAlerts.find((a) => a.severity === 'CRITICAL')
+  const warningBackendAlert = motorActiveAlerts.find((a) => a.severity === 'WARNING')
+
+  // 3. Independent rule-based safety evaluation in latest telemetry
+  const safetyStatus = motor.latest?.safety?.status
+  const safetyReasons = motor.latest?.safety?.active_reasons || []
+
+  // Rule: Critical alerts take absolute precedence over Warning alerts
+  if (criticalBackendAlert) {
+    return {
+      severity: 'critical',
+      label: 'CRITICAL',
+      activeReason: criticalBackendAlert.message,
+    }
+  }
+
+  if (safetyStatus === 'CRITICAL') {
+    return {
+      severity: 'critical',
+      label: 'CRITICAL',
+      activeReason: safetyReasons[0] || 'Critical safety threshold trip',
+    }
+  }
+
+  // 4. Warning alerts (only when no critical is active)
+  if (warningBackendAlert) {
+    return {
+      severity: 'warning',
+      label: 'WARNING',
+      activeReason: warningBackendAlert.message,
+    }
+  }
+
+  if (safetyStatus === 'WARNING') {
+    return {
+      severity: 'warning',
+      label: 'WARNING',
+      activeReason: safetyReasons[0] || 'Safety warning threshold exceeded',
+    }
+  }
+
+  // 5. ML prediction fallback (ML healthy can never suppress safety trips)
+  const mlStatus = motor.latest?.inference?.health_status
+  if (mlStatus === 'critical') {
+    return {
+      severity: 'critical',
+      label: 'CRITICAL',
+      activeReason: 'TinyML model diagnosed critical condition',
+    }
+  }
+  if (mlStatus === 'warning') {
+    return {
+      severity: 'warning',
+      label: 'WARNING',
+      activeReason: 'TinyML model flagged operating anomaly',
+    }
+  }
+
+  // 6. Offline / Stale state when no active safety violation
+  if (isOffline) {
+    return { severity: 'offline', label: 'OFFLINE' }
+  }
+  if (isStale) {
+    return { severity: 'stale', label: 'STALE' }
+  }
+
+  // 7. Normal steady healthy baseline
+  return {
+    severity: 'healthy',
+    label: 'HEALTHY',
+  }
+}
 
 interface LiveMonitoringViewProps {
   motors: MotorState[]
@@ -24,6 +118,7 @@ interface LiveMonitoringViewProps {
   onSelectMotor: (id: string) => void
   onInspectMotorDetail: (motor: MotorState) => void
   wsConnected: boolean
+  alerts?: AlertItem[]
 }
 
 interface TelemetryLogRow {
@@ -47,6 +142,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
   onSelectMotor,
   onInspectMotorDetail,
   wsConnected,
+  alerts,
 }) => {
   // View mode: 'single' (focused asset deep-dive) or 'multi' (plant floor multi-gauge grid)
   const [viewMode, setViewMode] = useState<'single' | 'multi'>('single')
@@ -92,15 +188,24 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
 
   // Compute freshness (seconds since last update)
   const [freshnessSec, setFreshnessSec] = useState<number>(0)
+  const [nowTs, setNowTs] = useState<number>(() => Date.now())
   useEffect(() => {
     const interval = setInterval(() => {
+      const now = Date.now()
+      setNowTs(now)
       if (currentMotor?.lastSeen) {
-        const diff = Math.max(0, Math.round((Date.now() - currentMotor.lastSeen) / 1000))
+        const diff = Math.max(0, Math.round((now - currentMotor.lastSeen) / 1000))
         setFreshnessSec(diff)
       }
     }, 1000)
     return () => clearInterval(interval)
   }, [currentMotor])
+
+  // Unified alert status evaluation for currently selected motor
+  const currentStatus = useMemo(() => {
+    if (!currentMotor) return { severity: 'offline', label: 'OFFLINE' } as MotorAlertEvaluation
+    return getLiveMotorAlertStatus(currentMotor, alerts, freshnessSec)
+  }, [currentMotor, alerts, freshnessSec])
 
   if (!currentMotor) {
     return (
@@ -111,10 +216,18 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
   }
 
   const { latest, history } = currentMotor
-  const { sensors, sensor_status, inference, device_id, motor_id, source } = latest
+  const { sensors, sensor_status, device_id, motor_id, source } = latest
 
   const curr = sensors.current_a
   const powerW = curr != null ? (12.0 * curr).toFixed(2) : '—'
+
+  // Effective thresholds resolved from motor-specific overrides or gateway defaults
+  const effectiveWarnTemp = currentMotor.effective_thresholds?.temperature_warning_c ?? currentMotor.thresholds?.temperature_warning_c ?? 50.0
+  const effectiveCritTemp = currentMotor.effective_thresholds?.temperature_critical_c ?? currentMotor.thresholds?.temperature_critical_c ?? 75.0
+  const effectiveWarnCurr = currentMotor.effective_thresholds?.current_warning_a ?? currentMotor.thresholds?.current_warning_a ?? 3.0
+  const effectiveCritCurr = currentMotor.effective_thresholds?.current_critical_a ?? currentMotor.thresholds?.current_critical_a ?? 4.0
+  const effectiveWarnVib = currentMotor.effective_thresholds?.vibration_warning_g ?? currentMotor.thresholds?.vibration_warning_g ?? 0.20
+  const effectiveCritVib = currentMotor.effective_thresholds?.vibration_critical_g ?? currentMotor.thresholds?.vibration_critical_g ?? 0.80
 
   // Time-series buffers for ECharts
   const tempSeries = history.map((h) => ({
@@ -265,43 +378,62 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 Target Motor Asset:
               </span>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {motors.map((m) => (
-                  <button
-                    key={m.motor_id}
-                    onClick={() => onSelectMotor(m.motor_id)}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      borderRadius: 'var(--radius-sm)',
-                      border: m.motor_id === motor_id ? '1px solid var(--brand-primary)' : '1px solid var(--border-main)',
-                      background: m.motor_id === motor_id ? 'var(--brand-primary-light)' : 'var(--bg-card)',
-                      color: m.motor_id === motor_id ? 'var(--brand-primary)' : 'var(--text-main)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {m.motor_id}
-                    <span
+                {motors.map((m) => {
+                  const mFresh = m.lastSeen ? Math.max(0, Math.round((nowTs - m.lastSeen) / 1000)) : 0
+                  const mStatus = getLiveMotorAlertStatus(m, alerts, mFresh)
+                  const isSelected = m.motor_id === motor_id
+                  return (
+                    <button
+                      key={m.motor_id}
+                      onClick={() => onSelectMotor(m.motor_id)}
+                      className={`live-monitor-selector-btn ${
+                        mStatus.severity === 'critical'
+                          ? 'critical'
+                          : mStatus.severity === 'warning'
+                          ? 'warning'
+                          : ''
+                      }`}
                       style={{
-                        marginLeft: '6px',
-                        display: 'inline-block',
-                        width: '7px',
-                        height: '7px',
-                        borderRadius: '50%',
-                        background:
-                          m.latest.inference.health_status === 'healthy'
-                            ? 'var(--status-healthy)'
-                            : m.latest.inference.health_status === 'warning'
-                            ? 'var(--status-warning)'
-                            : 'var(--status-critical)',
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: 'var(--radius-sm)',
+                        border: isSelected ? '1px solid var(--brand-primary)' : '1px solid var(--border-main)',
+                        background: isSelected ? 'var(--brand-primary-light)' : 'var(--bg-card)',
+                        color: isSelected ? 'var(--brand-primary)' : 'var(--text-main)',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        transition: 'all 0.15s ease',
                       }}
-                    />
-                  </button>
-                ))}
+                    >
+                      {m.motor_id}
+                      <span className={`live-monitor-dot ${mStatus.severity}`} />
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
+                <span
+                  className={`live-monitor-badge ${
+                    currentStatus.severity === 'critical'
+                      ? 'live-blink-critical'
+                      : currentStatus.severity === 'warning'
+                      ? 'live-blink-warning'
+                      : currentStatus.severity
+                  }`}
+                >
+                  {(currentStatus.severity === 'critical' || currentStatus.severity === 'warning') && (
+                    <AlertTriangle size={12} />
+                  )}
+                  {currentStatus.label}
+                </span>
+              </div>
+
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Clock size={14} color="var(--text-muted)" />
                 <span style={{ color: 'var(--text-secondary)' }}>Freshness:</span>
@@ -326,6 +458,21 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
             </div>
           </div>
 
+          {/* Active Alert Banner for Focused Asset */}
+          {currentStatus.activeReason && (currentStatus.severity === 'critical' || currentStatus.severity === 'warning') && (
+            <div className={`live-monitor-alert-banner ${currentStatus.severity}`}>
+              <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ fontWeight: 700, letterSpacing: '0.02em' }}>
+                  {currentStatus.label} ALERT ACTIVE FOR {motor_id}
+                </span>
+                <span style={{ fontSize: '12px', opacity: 0.95 }}>
+                  {currentStatus.activeReason}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Primary 4 Live Telemetry Gauges */}
           <div
             style={{
@@ -344,7 +491,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
               }}
             >
               <div className="metric-header">
-                <span className="metric-label">Armature / Bearing Temp</span>
+                <span className="metric-label">Chassis / Ambient Temp (DHT11)</span>
                 <Thermometer size={16} color="var(--sensor-temp)" />
               </div>
               <div className="metric-value-row">
@@ -354,7 +501,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 <span className="metric-unit">°C</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                <span>Threshold: &le; 50.0 °C</span>
+                <span>Threshold: &le; {effectiveWarnTemp.toFixed(1)} °C</span>
                 <span className={`status-pill ${sensor_status.temperature.toLowerCase()}`}>
                   {sensor_status.temperature}
                 </span>
@@ -381,7 +528,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 <span className="metric-unit">A</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                <span>Threshold: &le; 3.00 A</span>
+                <span>Threshold: &le; {effectiveWarnCurr.toFixed(2)} A</span>
                 <span className={`status-pill ${sensor_status.current.toLowerCase()}`}>
                   {sensor_status.current}
                 </span>
@@ -408,7 +555,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 <span className="metric-unit">g RMS</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                <span>ISO 10816: &le; 0.200 g</span>
+                <span>ISO 10816: &le; {effectiveWarnVib.toFixed(3)} g RMS</span>
                 <span className={`status-pill ${sensor_status.vibration.toLowerCase()}`}>
                   {sensor_status.vibration}
                 </span>
@@ -468,8 +615,8 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 deviceId={device_id}
                 data={activeSeries}
                 timeRange="1h"
-                thresholdWarn={activeMetric === 'temperature' ? 50 : activeMetric === 'current' ? 3.0 : 0.2}
-                thresholdCrit={activeMetric === 'temperature' ? 75 : activeMetric === 'current' ? 4.0 : 0.8}
+                thresholdWarn={activeMetric === 'temperature' ? effectiveWarnTemp : activeMetric === 'current' ? effectiveWarnCurr : effectiveWarnVib}
+                thresholdCrit={activeMetric === 'temperature' ? effectiveCritTemp : activeMetric === 'current' ? effectiveCritCurr : effectiveCritVib}
                 isPrimary={true}
               />
             </div>
@@ -487,22 +634,31 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                     </span>
                   </div>
                   <span
-                    className={`badge-status ${
-                      inference.health_status === 'healthy'
-                        ? 'healthy'
-                        : inference.health_status === 'warning'
-                        ? 'warning'
-                        : 'critical'
+                    className={`live-monitor-badge ${
+                      currentStatus.severity === 'critical'
+                        ? 'live-blink-critical'
+                        : currentStatus.severity === 'warning'
+                        ? 'live-blink-warning'
+                        : currentStatus.severity
                     }`}
                   >
-                    {inference.health_status.toUpperCase()}
+                    {(currentStatus.severity === 'critical' || currentStatus.severity === 'warning') && (
+                      <AlertTriangle size={12} />
+                    )}
+                    {currentStatus.label}
                   </span>
                 </div>
 
                 <div style={{ flex: 1, minHeight: '220px', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
                   <Motor3DViewer
                     motorId={motor_id}
-                    healthStatus={inference.health_status}
+                    healthStatus={
+                      currentStatus.severity === 'critical'
+                        ? 'critical'
+                        : currentStatus.severity === 'warning'
+                        ? 'warning'
+                        : 'healthy'
+                    }
                     temperature={sensors.temperature_c}
                     current={sensors.current_a}
                     vibration={sensors.vibration_g_rms}
@@ -620,36 +776,70 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
             const mSensors = mLatest.sensors
             const mInf = mLatest.inference
             const mPower = mSensors.current_a != null ? (12.0 * mSensors.current_a).toFixed(2) : '—'
+            const mFresh = m.lastSeen ? Math.max(0, Math.round((nowTs - m.lastSeen) / 1000)) : 0
+            const mStatus = getLiveMotorAlertStatus(m, alerts, mFresh)
 
             return (
               <div
                 key={m.motor_id}
-                className="card"
+                className={`card live-monitor-grid-card ${
+                  mStatus.severity === 'critical'
+                    ? 'critical'
+                    : mStatus.severity === 'warning'
+                    ? 'warning'
+                    : ''
+                }`}
                 style={{
                   padding: '16px',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '12px',
                   borderTop:
-                    mInf.health_status === 'healthy'
-                      ? '3px solid var(--status-healthy)'
-                      : mInf.health_status === 'warning'
+                    mStatus.severity === 'critical'
+                      ? '3px solid var(--status-critical)'
+                      : mStatus.severity === 'warning'
                       ? '3px solid var(--status-warning)'
-                      : '3px solid var(--status-critical)',
+                      : mStatus.severity === 'healthy'
+                      ? '3px solid var(--status-healthy)'
+                      : '3px solid var(--status-neutral)',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>{m.motor_id}</h3>
+                    <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {m.motor_id}
+                      <span className={`live-monitor-dot ${mStatus.severity}`} />
+                    </h3>
                     <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                       Node: {m.device_id} • {m.source.toUpperCase()}
                     </span>
                   </div>
 
-                  <span className={`badge-status ${mInf.health_status}`}>
-                    {mInf.health_status.toUpperCase()}
+                  <span
+                    className={`live-monitor-badge ${
+                      mStatus.severity === 'critical'
+                        ? 'live-blink-critical'
+                        : mStatus.severity === 'warning'
+                        ? 'live-blink-warning'
+                        : mStatus.severity
+                    }`}
+                  >
+                    {(mStatus.severity === 'critical' || mStatus.severity === 'warning') && (
+                      <AlertTriangle size={12} />
+                    )}
+                    {mStatus.label}
                   </span>
                 </div>
+
+                {/* Active Alert Banner inside Multi-Asset Card */}
+                {mStatus.activeReason && (mStatus.severity === 'critical' || mStatus.severity === 'warning') && (
+                  <div className={`live-monitor-alert-banner ${mStatus.severity}`}>
+                    <AlertTriangle size={12} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {mStatus.activeReason}
+                    </span>
+                  </div>
+                )}
 
                 {/* 4 Sensor Values */}
                 <div

@@ -36,7 +36,7 @@ def seed_database():
             "username": "admin",
             "email": "admin@motorguard.local",
             "role": "Admin",
-            "password_hash": get_password_hash("admin123"),
+            "password_hash": get_password_hash("adminpassword123"),
             "assigned_sites": ["SITE-PLANT-A"],
             "assigned_motors": [],
             "is_active": True,

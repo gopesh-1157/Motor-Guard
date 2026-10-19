@@ -178,6 +178,77 @@ async def inject_fault_condition(
     if req.custom_vibration is not None:
         vib_val = req.custom_vibration
 
+    # Re-evaluate health_status against effective operational thresholds if custom overrides provided
+    if req.custom_temp is not None or req.custom_current is not None or req.custom_vibration is not None:
+        from backend.app.db.mongodb import db_manager
+        warn_temp = 50.0
+        crit_temp = 65.0
+        warn_curr = 3.5
+        crit_curr = 4.0
+        warn_vib = 0.20
+        crit_vib = 0.80
+
+        if db_manager.db is not None:
+            try:
+                sys_doc = await db_manager.db["system_settings"].find_one({"_id": "gateway_operational_limits"})
+                if isinstance(sys_doc, dict):
+                    warn_temp = float(sys_doc.get("temperature_warning_c", warn_temp))
+                    crit_temp = float(sys_doc.get("temperature_critical_c", crit_temp))
+                    warn_curr = float(sys_doc.get("current_warning_a", warn_curr))
+                    crit_curr = float(sys_doc.get("current_critical_a", crit_curr))
+                    warn_vib = float(sys_doc.get("vibration_warning_g", warn_vib))
+                    crit_vib = float(sys_doc.get("vibration_critical_g", crit_vib))
+            except Exception:
+                pass
+
+        # Deterministic Safety Rules Evaluation (Separated from ML inference)
+        safety_reasons = []
+        c_state = "NORMAL"
+        v_state = "NORMAL"
+        t_state = "NORMAL"
+
+        if curr_val is not None and curr_val >= crit_curr:
+            c_state = "CRITICAL"
+            safety_reasons.append("CURRENT_CRITICAL_EXCEEDED")
+        elif curr_val is not None and curr_val >= warn_curr:
+            c_state = "WARNING"
+            safety_reasons.append("CURRENT_WARNING_EXCEEDED")
+
+        if vib_val is not None and vib_val >= crit_vib:
+            v_state = "CRITICAL"
+            safety_reasons.append("VIBRATION_CRITICAL_EXCEEDED")
+        elif vib_val is not None and vib_val >= warn_vib:
+            v_state = "WARNING"
+            safety_reasons.append("VIBRATION_WARNING_EXCEEDED")
+
+        if temp_val is None:
+            t_state = "UNKNOWN"
+            safety_reasons.append("TEMPERATURE_SENSOR_DISCONNECTED")
+        elif temp_val >= crit_temp:
+            t_state = "CRITICAL"
+            safety_reasons.append("AMBIENT_TEMP_CRITICAL_EXCEEDED")
+        elif temp_val >= warn_temp:
+            t_state = "WARNING"
+            safety_reasons.append("AMBIENT_TEMP_WARNING_EXCEEDED")
+
+        if c_state == "CRITICAL" or v_state == "CRITICAL" or t_state == "CRITICAL":
+            safety_status = "CRITICAL"
+        elif c_state == "WARNING" or v_state == "WARNING" or t_state == "WARNING":
+            safety_status = "WARNING"
+        elif c_state == "UNKNOWN" or v_state == "UNKNOWN" or t_state == "UNKNOWN":
+            safety_status = "UNKNOWN"
+        else:
+            safety_status = "SAFE"
+    else:
+        safety_status = "CRITICAL" if req.condition in ("critical_vib", "overload_current") else ("WARNING" if req.condition in ("warning_temp", "sensor_disconnected") else "SAFE")
+        c_state = "CRITICAL" if req.condition == "overload_current" else "NORMAL"
+        v_state = "CRITICAL" if req.condition == "critical_vib" else "NORMAL"
+        t_state = "CRITICAL" if (temp_val and temp_val > 65.0) else ("UNKNOWN" if temp_val is None else "NORMAL")
+        safety_reasons = [req.condition.upper() + "_TRIP"] if req.condition != "healthy" else []
+
+    curr_peak = round(curr_val * 1.15, 2) if curr_val is not None else None
+    vib_peak = round(vib_val * 1.8, 3) if vib_val is not None else None
+
     payload = {
         "schema_version": "1.0.0",
         "event_id": str(uuid.uuid4()),
@@ -188,13 +259,19 @@ async def inject_fault_condition(
         "timestamp": now_iso,
         "sensors": {
             "temperature_c": temp_val,
+            "ambient_temperature_c": temp_val,
+            "case_temperature_c": None,
             "current_a": curr_val,
+            "current_peak_a": curr_peak,
             "vibration_g_rms": vib_val,
+            "vibration_g_peak": vib_peak,
         },
         "sensor_status": {
             "temperature": temp_stat,
             "current": curr_stat,
             "vibration": vib_stat,
+            "current_calibrated": True,
+            "current_zero_offset_v": 2.500,
         },
         "inference": {
             "status": "PREDICTED",
@@ -202,7 +279,17 @@ async def inject_fault_condition(
             "confidence": confidence,
             "probabilities": probs,
             "model_version": "ei-motoguard-v1.0.1",
+            "input_feature_version": "1.0.0-3f",
             "inference_time_ms": 6,
+        },
+        "safety": {
+            "status": safety_status,
+            "current_state": c_state,
+            "vibration_state": v_state,
+            "temperature_state": t_state,
+            "active_reasons": safety_reasons,
+            "configuration_version": 1,
+            "calibration_status": "provisional",
         },
         "diagnostics": {
             "wifi_rssi_dbm": -58,

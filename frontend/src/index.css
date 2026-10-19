@@ -4748,3 +4748,184 @@ html, body {
   }
 }
 
+/* ==============================================================================
+   Live Monitor Panel — Scoped Alert Blinking Indicators
+   Applies strictly to LiveMonitoringView components (.live-monitor-*)
+   ============================================================================== */
+
+/* Warning Blinking Keyframes: 1 gentle pulse per second (1.0s) */
+@keyframes liveAlertBlinkWarning {
+  0%, 100% {
+    opacity: 1;
+    border-color: var(--status-warning);
+    box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.4);
+  }
+  50% {
+    opacity: 0.55;
+    border-color: var(--status-warning-border);
+    box-shadow: 0 0 8px 2px rgba(217, 119, 6, 0.25);
+  }
+}
+
+/* Critical Blinking Keyframes: 2 gentle pulses per second (0.5s) */
+@keyframes liveAlertBlinkCritical {
+  0%, 100% {
+    opacity: 1;
+    border-color: var(--status-critical);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5);
+  }
+  50% {
+    opacity: 0.45;
+    border-color: var(--status-critical-border);
+    box-shadow: 0 0 12px 3px rgba(220, 38, 38, 0.35);
+  }
+}
+
+/* Status Dot in Asset Selector Bar */
+.live-monitor-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.live-monitor-dot.healthy {
+  background: var(--status-healthy);
+  box-shadow: 0 0 4px rgba(22, 163, 74, 0.4);
+}
+
+.live-monitor-dot.warning {
+  background: var(--status-warning);
+  animation: liveAlertBlinkWarning 1s ease-in-out infinite;
+}
+
+.live-monitor-dot.critical {
+  background: var(--status-critical);
+  animation: liveAlertBlinkCritical 0.5s ease-in-out infinite;
+}
+
+.live-monitor-dot.stale,
+.live-monitor-dot.offline {
+  background: var(--status-neutral);
+}
+
+/* Selector Button Alert Border */
+.live-monitor-selector-btn.warning {
+  border-color: var(--status-warning) !important;
+  background: var(--status-warning-bg) !important;
+  color: var(--status-warning) !important;
+  animation: liveAlertBlinkWarning 1s ease-in-out infinite;
+}
+
+.live-monitor-selector-btn.critical {
+  border-color: var(--status-critical) !important;
+  background: var(--status-critical-bg) !important;
+  color: var(--status-critical) !important;
+  animation: liveAlertBlinkCritical 0.5s ease-in-out infinite;
+}
+
+/* Scoped Status Badges for Live Monitor */
+.live-monitor-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.live-monitor-badge.healthy {
+  background: var(--status-healthy-bg);
+  color: var(--status-healthy);
+  border: 1px solid var(--status-healthy-border);
+}
+
+.live-monitor-badge.warning,
+.live-monitor-badge.live-blink-warning {
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+  border: 1px solid var(--status-warning);
+  animation: liveAlertBlinkWarning 1s ease-in-out infinite;
+}
+
+.live-monitor-badge.critical,
+.live-monitor-badge.live-blink-critical {
+  background: var(--status-critical-bg);
+  color: var(--status-critical);
+  border: 1px solid var(--status-critical);
+  animation: liveAlertBlinkCritical 0.5s ease-in-out infinite;
+}
+
+.live-monitor-badge.stale {
+  background: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+}
+
+.live-monitor-badge.offline {
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral);
+  border: 1px solid var(--status-neutral-border);
+}
+
+/* Multi-Asset Grid Card Alert Glow & Top Border */
+.live-monitor-grid-card.warning {
+  border-top: 3px solid var(--status-warning) !important;
+  box-shadow: 0 0 10px rgba(217, 119, 6, 0.2);
+  animation: liveAlertBlinkWarning 1s ease-in-out infinite;
+}
+
+.live-monitor-grid-card.critical {
+  border-top: 3px solid var(--status-critical) !important;
+  box-shadow: 0 0 14px rgba(220, 38, 38, 0.3);
+  animation: liveAlertBlinkCritical 0.5s ease-in-out infinite;
+}
+
+/* Alert Reason Banner inside Multi-Asset Card */
+.live-monitor-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.live-monitor-alert-banner.warning {
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+  border: 1px solid var(--status-warning-border);
+}
+
+.live-monitor-alert-banner.critical {
+  background: var(--status-critical-bg);
+  color: var(--status-critical);
+  border: 1px solid var(--status-critical-border);
+}
+
+/* Respect Reduced Motion for Live Monitor */
+@media (prefers-reduced-motion: reduce) {
+  .live-monitor-dot.warning,
+  .live-monitor-dot.critical,
+  .live-monitor-selector-btn.warning,
+  .live-monitor-selector-btn.critical,
+  .live-monitor-badge.warning,
+  .live-monitor-badge.critical,
+  .live-monitor-badge.live-blink-warning,
+  .live-monitor-badge.live-blink-critical,
+  .live-monitor-grid-card.warning,
+  .live-monitor-grid-card.critical {
+    animation: none !important;
+    box-shadow: none !important;
+  }
+}
+
+

@@ -17,4 +17,22 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules/echarts')) {
+            return 'vendor-echarts'
+          }
+          if (id.includes('node_modules/three')) {
+            return 'vendor-three'
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'vendor-lucide'
+          }
+        },
+      },
+    },
+  },
 })

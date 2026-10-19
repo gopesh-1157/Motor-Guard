@@ -11,7 +11,7 @@
  * - Toast notification system for alert events
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import type { FC } from 'react'
 import type { AlertItem, UserProfile, MotorState } from '../types'
 
@@ -117,6 +117,21 @@ export const AlertsView: FC<AlertsViewProps> = ({
   const alertListRef = useRef<HTMLDivElement>(null)
   const prevAlertCountRef = useRef(alerts.length)
 
+  const [currentTime, setCurrentTime] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 30000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Toast helpers
+  const addToast = useCallback((message: string, type: ToastNotification['type'] = 'info') => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+    setToasts((prev) => [...prev, { id, message, type, timestamp: Date.now() }])
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, 4000)
+  }, [])
+
   // Live alert count tracking for "new alerts" badge
   useEffect(() => {
     if (alerts.length > prevAlertCountRef.current) {
@@ -125,16 +140,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
       addToast(`${newCount} new alert${newCount > 1 ? 's' : ''} triggered`, 'warning')
     }
     prevAlertCountRef.current = alerts.length
-  }, [alerts.length])
-
-  // Toast helpers
-  const addToast = (message: string, type: ToastNotification['type'] = 'info') => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
-    setToasts((prev) => [...prev, { id, message, type, timestamp: Date.now() }])
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id))
-    }, 4000)
-  }
+  }, [alerts.length, addToast])
 
   // Statistics
   const stats = useMemo(() => {
@@ -260,7 +266,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
   }
 
   const formatTimeAgo = (iso: string) => {
-    const diff = Date.now() - new Date(iso).getTime()
+    const diff = currentTime - new Date(iso).getTime()
     const mins = Math.floor(diff / 60000)
     if (mins < 1) return 'just now'
     if (mins < 60) return `${mins}m ago`

@@ -20,6 +20,8 @@ interface MetricSummaryCardProps {
   thresholdCrit?: number
   onClick?: () => void
   isSelected?: boolean
+  sensorState?: string
+  connectionStatus?: string
 }
 
 export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
@@ -33,6 +35,8 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
   thresholdCrit,
   onClick,
   isSelected = false,
+  sensorState,
+  connectionStatus,
 }) => {
   // Extract min, max, delta from real history
   const { minVal, maxVal, delta, isDeltaPositive } = useMemo(() => {
@@ -53,13 +57,30 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
     }
   }, [history])
 
-  // Determine threshold health status
+  // Determine threshold health status (stale, offline, and disconnected are never healthy)
   const statusClass = useMemo(() => {
+    if (connectionStatus === 'offline') return 'offline'
+    if (connectionStatus === 'stale') return 'warning'
+    if (
+      sensorState === 'DISCONNECTED' ||
+      sensorState === 'UNAVAILABLE' ||
+      sensorState === 'OUT_OF_RANGE'
+    ) {
+      return 'unknown'
+    }
     if (latestValue == null) return 'unknown'
     if (thresholdCrit != null && latestValue >= thresholdCrit) return 'critical'
     if (thresholdWarn != null && latestValue >= thresholdWarn) return 'warning'
     return 'healthy'
-  }, [latestValue, thresholdWarn, thresholdCrit])
+  }, [connectionStatus, sensorState, latestValue, thresholdWarn, thresholdCrit])
+
+  const badgeLabel = useMemo(() => {
+    if (connectionStatus === 'offline') return 'OFFLINE'
+    if (connectionStatus === 'stale') return 'STALE'
+    if (sensorState === 'DISCONNECTED') return 'DISCONNECTED'
+    if (sensorState === 'UNAVAILABLE') return 'UNAVAILABLE'
+    return statusClass.toUpperCase()
+  }, [connectionStatus, sensorState, statusClass])
 
   // Icon
   const Icon = metric === 'temperature' ? Thermometer : metric === 'current' ? Zap : Activity
@@ -125,6 +146,8 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
                     ? '#C43D43'
                     : statusClass === 'warning'
                     ? '#B7791F'
+                    : statusClass === 'offline' || statusClass === 'unknown'
+                    ? '#6B7280'
                     : '#23845B'
                 }
                 strokeWidth="1.75"
@@ -137,7 +160,7 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
             className={`badge-status ${statusClass}`}
             style={{ fontSize: '10px', padding: '1px 6px' }}
           >
-            {statusClass.toUpperCase()}
+            {badgeLabel}
           </div>
         </div>
       </div>

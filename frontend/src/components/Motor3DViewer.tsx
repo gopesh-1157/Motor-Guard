@@ -12,6 +12,15 @@ interface Motor3DViewerProps {
   vibration?: number | null
 }
 
+const isWebGLAvailable = () => {
+  try {
+    const canvas = document.createElement('canvas')
+    return Boolean(canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
+  } catch {
+    return false
+  }
+}
+
 export const Motor3DViewer: FC<Motor3DViewerProps> = ({
   motorId,
   healthStatus = 'healthy',
@@ -21,24 +30,11 @@ export const Motor3DViewer: FC<Motor3DViewerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const [autoRotate, setAutoRotate] = useState(true)
-  const [webglSupported, setWebglSupported] = useState(true)
+  const [webglSupported] = useState(isWebGLAvailable)
 
   useEffect(() => {
     const container = containerRef.current
-    if (!container) return
-
-    // WebGL support check
-    try {
-      const canvas = document.createElement('canvas')
-      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
-      if (!gl) {
-        setWebglSupported(false)
-        return
-      }
-    } catch {
-      setWebglSupported(false)
-      return
-    }
+    if (!container || !webglSupported) return
 
     const width = container.clientWidth || 320
     const height = container.clientHeight || 240
@@ -214,7 +210,7 @@ export const Motor3DViewer: FC<Motor3DViewerProps> = ({
       floorMat.dispose()
       renderer.dispose()
     }
-  }, [autoRotate, healthStatus])
+  }, [autoRotate, healthStatus, webglSupported])
 
   return (
     <div className="motor-3d-card">

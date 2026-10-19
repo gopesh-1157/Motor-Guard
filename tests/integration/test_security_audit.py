@@ -78,6 +78,94 @@ class TestRateLimiting:
         assert "Too Many Requests" in res_blocked.json()["error"]
         assert res_blocked.headers.get("Retry-After") == "60"
 
+    def test_spoofed_forwarded_for_from_untrusted_peer_is_ignored(self):
+        """When request arrives from an untrusted peer, X-Forwarded-For is ignored to prevent rate-limit bypass."""
+        from starlette.requests import Request
+        from backend.app.core.middleware import RateLimitMiddleware
+
+        middleware = RateLimitMiddleware(app)
+
+        # Simulate direct connection from untrusted attacker IP (198.51.100.24)
+        mock_scope = {
+            "type": "http",
+            "client": ("198.51.100.24", 54321),
+            "headers": [
+                (b"x-forwarded-for", b"1.1.1.1, 10.0.0.1"),
+            ],
+        }
+        mock_request = Request(mock_scope)
+        resolved_ip = middleware._get_client_ip(mock_request)
+
+        # Must ignore the spoofed 1.1.1.1 header and resolve the actual peer IP
+        assert resolved_ip == "198.51.100.24"
+
+    def test_trusted_proxy_forwarded_for_is_honored(self):
+        """When request arrives from a trusted proxy IP, X-Forwarded-For client IP is accurately extracted."""
+        from starlette.requests import Request
+        from backend.app.core.middleware import RateLimitMiddleware
+
+        middleware = RateLimitMiddleware(app)
+
+        # Simulate connection arriving through trusted reverse proxy (127.0.0.1)
+        mock_scope = {
+            "type": "http",
+            "client": ("127.0.0.1", 54321),
+            "headers": [
+                (b"x-forwarded-for", b"203.0.113.88, 127.0.0.1"),
+            ],
+        }
+        mock_request = Request(mock_scope)
+        resolved_ip = middleware._get_client_ip(mock_request)
+
+        # Must trust the proxy and resolve client IP
+        assert resolved_ip == "203.0.113.88"
+
+    def test_trusted_proxy_cidr_network_honored(self):
+        """When request arrives from a Docker subnet IP configured in trusted proxies (CIDR notation), client IP is extracted."""
+        from unittest.mock import patch
+        from starlette.requests import Request
+        from backend.app.core.middleware import RateLimitMiddleware
+        from backend.app.config import settings
+
+        middleware = RateLimitMiddleware(app)
+
+        mock_scope = {
+            "type": "http",
+            "client": ("172.18.0.4", 54321),  # Container IP in Docker bridge
+            "headers": [
+                (b"x-forwarded-for", b"203.0.113.42"),
+            ],
+        }
+        mock_request = Request(mock_scope)
+
+        # With default loopback only, 172.18.0.4 is untrusted
+        assert middleware._get_client_ip(mock_request) == "172.18.0.4"
+
+        # With Docker bridge CIDR configured in trusted proxies, forwarding is honored
+        with patch.object(settings, "TRUSTED_PROXIES", "127.0.0.1,::1,172.16.0.0/12"):
+            resolved = middleware._get_client_ip(mock_request)
+            assert resolved == "203.0.113.42"
+
+    def test_trusted_proxy_x_real_ip_takes_precedence(self):
+        """When trusted proxy sets X-Real-IP, it takes precedence over client-tainted X-Forwarded-For."""
+        from starlette.requests import Request
+        from backend.app.core.middleware import RateLimitMiddleware
+
+        middleware = RateLimitMiddleware(app)
+
+        mock_scope = {
+            "type": "http",
+            "client": ("127.0.0.1", 54321),
+            "headers": [
+                (b"x-real-ip", b"198.51.100.99"),
+                (b"x-forwarded-for", b"spoofed.client.ip, 198.51.100.99"),
+            ],
+        }
+        mock_request = Request(mock_scope)
+        resolved_ip = middleware._get_client_ip(mock_request)
+        assert resolved_ip == "198.51.100.99"
+
+
 
 class TestAuthenticationGates:
     """Verify unauthenticated requests to protected endpoints return 401."""

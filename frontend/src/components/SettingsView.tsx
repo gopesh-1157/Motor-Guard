@@ -1,7 +1,13 @@
-import { useState, type FC } from 'react'
-import { Save, Check, Sliders, Radio, Cpu, RefreshCw, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { useState, useEffect, useCallback, type FC } from 'react'
+import { Save, Check, Sliders, Radio, Cpu, RefreshCw, AlertTriangle, ShieldCheck, Loader2, Lock, Info } from 'lucide-react'
+import type { UserProfile } from '../types'
 
-export const SettingsView: FC = () => {
+interface SettingsViewProps {
+  currentUser?: UserProfile | null
+  onOpenLogin?: () => void
+}
+
+export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }) => {
   // Threshold values
   const [tempWarn, setTempWarn] = useState(50.0)
   const [tempCrit, setTempCrit] = useState(65.0)
@@ -12,6 +18,14 @@ export const SettingsView: FC = () => {
   const [staleTimeoutSec, setStaleTimeoutSec] = useState(15)
   const [offlineTimeoutSec, setOfflineTimeoutSec] = useState(35)
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [loadingThresholds, setLoadingThresholds] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [persistedLoaded, setPersistedLoaded] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
+  const [updatedBy, setUpdatedBy] = useState<string | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
 
   // Gateway parameters
   const [mqttHost, setMqttHost] = useState('127.0.0.1')
@@ -25,10 +39,131 @@ export const SettingsView: FC = () => {
   const [simInjecting, setSimInjecting] = useState(false)
   const [simFeedback, setSimFeedback] = useState<string | null>(null)
 
-  const handleSaveThresholds = (e: React.FormEvent) => {
+  const isAuthorized = Boolean(
+    currentUser && (currentUser.role === 'Admin' || currentUser.role === 'Manager' || currentUser.clearance_level >= 3)
+  )
+
+  // Load persisted thresholds from MongoDB via authenticated API
+  const fetchThresholds = useCallback(async () => {
+    setLoadingThresholds(true)
+    setFetchError(null)
+    try {
+      const token = currentUser?.token || localStorage.getItem('motorguard_auth_token')
+      if (!token) {
+        setFetchError('Sign in as Manager or Admin to view and edit Gateway Default Thresholds.')
+        setLoadingThresholds(false)
+        return
+      }
+
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
+      const res = await fetch('/api/v1/settings/thresholds', { headers })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.temperature_warning_c !== undefined) setTempWarn(data.temperature_warning_c)
+        if (data.temperature_critical_c !== undefined) setTempCrit(data.temperature_critical_c)
+        if (data.current_warning_a !== undefined) setCurrWarn(data.current_warning_a)
+        if (data.current_critical_a !== undefined) setCurrCrit(data.current_critical_a)
+        if (data.vibration_warning_g !== undefined) setVibWarn(data.vibration_warning_g)
+        if (data.vibration_critical_g !== undefined) setVibCrit(data.vibration_critical_g)
+        if (data.stale_timeout_sec !== undefined) setStaleTimeoutSec(data.stale_timeout_sec)
+        if (data.offline_timeout_sec !== undefined) setOfflineTimeoutSec(data.offline_timeout_sec)
+        if (data.updated_by) setUpdatedBy(data.updated_by)
+        if (data.updated_at) setUpdatedAt(new Date(data.updated_at).toLocaleString())
+        setPersistedLoaded(true)
+      } else if (res.status === 401) {
+        setFetchError('Session expired or unauthorized. Sign in with Manager or Admin credentials.')
+      } else {
+        setFetchError(`Server error loading gateway thresholds (HTTP ${res.status}).`)
+      }
+    } catch {
+      setFetchError('Network error: Unable to reach gateway settings API.')
+    } finally {
+      setLoadingThresholds(false)
+    }
+  }, [currentUser])
+
+  useEffect(() => {
+    fetchThresholds()
+  }, [fetchThresholds])
+
+  const handleSaveThresholds = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+    if (!isAuthorized) {
+      setSaveError('Modifying operational thresholds requires Manager or Admin security clearance.')
+      return
+    }
+
+    setSaving(true)
+    setSaveError(null)
+    setSaveSuccess(null)
+
+    // Immediate client-side validation
+    if (tempWarn >= tempCrit) {
+      setSaveError(`Temperature warning (${tempWarn}°C) must be less than critical trip (${tempCrit}°C).`)
+      setSaving(false)
+      return
+    }
+    if (currWarn >= currCrit) {
+      setSaveError(`Current warning (${currWarn}A) must be less than critical trip (${currCrit}A).`)
+      setSaving(false)
+      return
+    }
+    if (vibWarn >= vibCrit) {
+      setSaveError(`Vibration warning (${vibWarn}g) must be less than critical trip (${vibCrit}g).`)
+      setSaving(false)
+      return
+    }
+    if (staleTimeoutSec >= offlineTimeoutSec) {
+      setSaveError(`Stale timeout (${staleTimeoutSec}s) must be less than offline timeout (${offlineTimeoutSec}s).`)
+      setSaving(false)
+      return
+    }
+
+    try {
+      const token = currentUser?.token || localStorage.getItem('motorguard_auth_token')
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await fetch('/api/v1/settings/thresholds', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          temperature_warning_c: tempWarn,
+          temperature_critical_c: tempCrit,
+          current_warning_a: currWarn,
+          current_critical_a: currCrit,
+          vibration_warning_g: vibWarn,
+          vibration_critical_g: vibCrit,
+          stale_timeout_sec: staleTimeoutSec,
+          offline_timeout_sec: offlineTimeoutSec,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setSaved(true)
+        setSaveSuccess('Gateway default limits persisted to MongoDB successfully. Motors with asset-specific thresholds retain their custom limits.')
+        if (data.updated_by) setUpdatedBy(data.updated_by)
+        if (data.updated_at) setUpdatedAt(new Date(data.updated_at).toLocaleString())
+        setPersistedLoaded(true)
+        setTimeout(() => {
+          setSaved(false)
+          setSaveSuccess(null)
+        }, 4000)
+      } else if (res.status === 401 || res.status === 403) {
+        setSaveError('Modifying operational thresholds requires Manager or Admin security clearance.')
+      } else if (res.status === 422) {
+        const errData = await res.json().catch(() => ({}))
+        const msg = errData?.detail?.[0]?.msg || errData?.detail || 'Threshold validation rejected by server.'
+        setSaveError(`Validation Error: ${msg}`)
+      } else {
+        setSaveError(`Server error saving operational limits (HTTP ${res.status}).`)
+      }
+    } catch {
+      setSaveError('Network error: Unable to reach gateway settings API.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSaveGateway = (e: React.FormEvent) => {
@@ -41,7 +176,7 @@ export const SettingsView: FC = () => {
     setSimInjecting(true)
     setSimFeedback(null)
     try {
-      const token = localStorage.getItem('motorguard_auth_token')
+      const token = currentUser?.token || localStorage.getItem('motorguard_auth_token')
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers['Authorization'] = `Bearer ${token}`
 
@@ -70,40 +205,114 @@ export const SettingsView: FC = () => {
     }
   }
 
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div className="page-header" style={{ marginBottom: 0 }}>
         <div className="page-title-group">
           <h2 className="page-title">Edge Gateway Configuration &amp; Safety Thresholds</h2>
           <p className="page-description">
-            Configure safety trips, deterministic alarm thresholds, broker connectivity, and edge testing simulator.
+            Configure gateway default safety trips, deterministic alarm thresholds, broker connectivity, and edge testing simulator.
           </p>
         </div>
+
+        <button
+          className="btn-secondary"
+          onClick={fetchThresholds}
+          disabled={loadingThresholds}
+          title="Reload persisted thresholds from MongoDB"
+        >
+          <RefreshCw size={14} className={loadingThresholds ? 'animate-spin' : ''} />
+          <span>Reload Gateway Settings</span>
+        </button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: '20px' }}>
         {/* Panel 1: Industrial Safety Thresholds */}
         <form onSubmit={handleSaveThresholds} className="measurement-card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-            <ShieldCheck size={18} color="var(--brand-primary)" />
-            <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)' }}>
-              Operational Safety Thresholds &amp; Automatic Trips
-            </h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ShieldCheck size={18} color="var(--brand-primary)" />
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>
+                Gateway Default Operational Thresholds
+              </h3>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {loadingThresholds ? (
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Loader2 size={12} className="animate-spin" /> Fetching DB...
+                </span>
+              ) : persistedLoaded ? (
+                <span className="badge-status healthy" style={{ fontSize: '10px' }}>
+                  PERSISTED IN GATEWAY DB
+                </span>
+              ) : null}
+            </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Context Notice: Gateway Defaults Precedence */}
+          <div style={{
+            padding: '10px 12px',
+            background: 'var(--bg-subtle)',
+            border: '1px solid var(--border-main)',
+            borderRadius: 'var(--radius-sm)',
+            marginBottom: '16px',
+            fontSize: '11px',
+            color: 'var(--text-secondary)',
+            display: 'flex',
+            gap: '8px',
+            lineHeight: 1.45,
+          }}>
+            <Info size={16} color="var(--brand-primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <strong>Gateway Baseline Scope:</strong> These thresholds govern unconfigured motors and newly provisioned edge nodes across the site. Individual motor assets with custom limits configured in Fleet Management (e.g. <code>MTR-775-001</code>) override these gateway defaults.
+            </div>
+          </div>
+
+          {/* Unauthenticated / Error Banner */}
+          {fetchError && (
+            <div style={{
+              padding: '10px 12px',
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: 'var(--radius-sm)',
+              marginBottom: '16px',
+              fontSize: '12px',
+              color: '#ef4444',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Lock size={14} />
+                <span>{fetchError}</span>
+              </div>
+              {onOpenLogin && !currentUser && (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={onOpenLogin}
+                  style={{ fontSize: '11px', padding: '4px 10px', flexShrink: 0 }}
+                >
+                  Sign In
+                </button>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', opacity: (!isAuthorized || loadingThresholds) ? 0.65 : 1 }}>
             {/* Temperature */}
             <div>
               <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
-                Temperature Safety Limits (°C) — DHT11
+                Temperature Safety Limits (°C) — Ambient Air (DHT11)
               </h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Warning Alert Threshold</label>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Gateway Warning Limit</label>
                   <input
                     type="number"
                     step="0.5"
+                    disabled={!isAuthorized || loadingThresholds}
                     className="search-input-field"
                     style={{ width: '100%', marginTop: '4px' }}
                     value={tempWarn}
@@ -111,10 +320,11 @@ export const SettingsView: FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Critical Emergency Trip</label>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Gateway Critical Limit</label>
                   <input
                     type="number"
                     step="0.5"
+                    disabled={!isAuthorized || loadingThresholds}
                     className="search-input-field"
                     style={{ width: '100%', marginTop: '4px' }}
                     value={tempCrit}
@@ -123,7 +333,6 @@ export const SettingsView: FC = () => {
                 </div>
               </div>
             </div>
-
             {/* Current */}
             <div>
               <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
@@ -131,10 +340,11 @@ export const SettingsView: FC = () => {
               </h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Warning Alert Limit</label>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Gateway Warning Limit</label>
                   <input
                     type="number"
                     step="0.1"
+                    disabled={!isAuthorized || loadingThresholds}
                     className="search-input-field"
                     style={{ width: '100%', marginTop: '4px' }}
                     value={currWarn}
@@ -142,10 +352,11 @@ export const SettingsView: FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Overcurrent Cutoff</label>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Gateway Critical Cutoff</label>
                   <input
                     type="number"
                     step="0.1"
+                    disabled={!isAuthorized || loadingThresholds}
                     className="search-input-field"
                     style={{ width: '100%', marginTop: '4px' }}
                     value={currCrit}
@@ -158,14 +369,15 @@ export const SettingsView: FC = () => {
             {/* Vibration */}
             <div>
               <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
-                Vibration RMS Limits (g) — ADXL345
+                Vibration RMS Limits (g RMS) — ADXL345
               </h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Mechanical Warning Limit</label>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Gateway Warning Limit</label>
                   <input
                     type="number"
                     step="0.05"
+                    disabled={!isAuthorized || loadingThresholds}
                     className="search-input-field"
                     style={{ width: '100%', marginTop: '4px' }}
                     value={vibWarn}
@@ -173,10 +385,11 @@ export const SettingsView: FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Severe Breakdown Trip</label>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Gateway Critical Trip</label>
                   <input
                     type="number"
                     step="0.05"
+                    disabled={!isAuthorized || loadingThresholds}
                     className="search-input-field"
                     style={{ width: '100%', marginTop: '4px' }}
                     value={vibCrit}
@@ -197,6 +410,7 @@ export const SettingsView: FC = () => {
                   step="1"
                   min="5"
                   max="120"
+                  disabled={!isAuthorized || loadingThresholds}
                   className="search-input-field"
                   style={{ width: '100%', marginTop: '4px' }}
                   value={staleTimeoutSec}
@@ -212,6 +426,7 @@ export const SettingsView: FC = () => {
                   step="1"
                   min="10"
                   max="300"
+                  disabled={!isAuthorized || loadingThresholds}
                   className="search-input-field"
                   style={{ width: '100%', marginTop: '4px' }}
                   value={offlineTimeoutSec}
@@ -220,11 +435,42 @@ export const SettingsView: FC = () => {
               </div>
             </div>
 
-            <div style={{ paddingTop: '8px' }}>
-              <button type="submit" className="btn-primary">
-                {saved ? <Check size={14} /> : <Save size={14} />}
-                <span>{saved ? 'Safety Rules Updated' : 'Save Safety Limits'}</span>
+            {saveError && (
+              <div style={{ padding: '8px 12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', color: '#ef4444', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={14} />
+                <span>{saveError}</span>
+              </div>
+            )}
+
+            {saveSuccess && (
+              <div style={{ padding: '8px 12px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '6px', color: '#22c55e', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={14} />
+                <span>{saveSuccess}</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '8px' }}>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={saving || !isAuthorized || loadingThresholds}
+              >
+                {saving ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : saved ? (
+                  <Check size={14} />
+                ) : (
+                  <Save size={14} />
+                )}
+                <span>{saving ? 'Persisting to DB...' : saved ? 'Gateway Limits Saved' : 'Save Gateway Limits'}</span>
               </button>
+
+              {updatedBy && (
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Persisted by <strong style={{ color: 'var(--text-main)' }}>{updatedBy}</strong>
+                  {updatedAt ? ` (${updatedAt})` : ''}
+                </span>
+              )}
             </div>
           </div>
         </form>

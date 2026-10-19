@@ -4,6 +4,7 @@ import { Download, Table, AlertTriangle } from 'lucide-react'
 import type { MotorState, ChartMetric, TimeRangeOption, AlertItem } from '../types'
 import { MetricSummaryCard } from './MetricSummaryCard'
 import { EChartPanel } from './EChartPanel'
+import { FFTSpectrumViewer } from './FFTSpectrumViewer'
 
 interface AnalyticsViewProps {
   motors: MotorState[]
@@ -82,7 +83,15 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
   }
 
   const { latest, connectionStatus } = currentMotor
-  const { sensors, inference, device_id, source } = latest
+  const { sensors, sensor_status, inference, device_id, source } = latest
+
+  // Effective thresholds resolved from motor-specific overrides or gateway defaults
+  const effectiveWarnTemp = currentMotor.effective_thresholds?.temperature_warning_c ?? currentMotor.thresholds?.temperature_warning_c ?? 50.0
+  const effectiveCritTemp = currentMotor.effective_thresholds?.temperature_critical_c ?? currentMotor.thresholds?.temperature_critical_c ?? 75.0
+  const effectiveWarnCurr = currentMotor.effective_thresholds?.current_warning_a ?? currentMotor.thresholds?.current_warning_a ?? 3.0
+  const effectiveCritCurr = currentMotor.effective_thresholds?.current_critical_a ?? currentMotor.thresholds?.current_critical_a ?? 4.0
+  const effectiveWarnVib = currentMotor.effective_thresholds?.vibration_warning_g ?? currentMotor.thresholds?.vibration_warning_g ?? 0.20
+  const effectiveCritVib = currentMotor.effective_thresholds?.vibration_critical_g ?? currentMotor.thresholds?.vibration_critical_g ?? 0.80
 
   // Full dataset export handler
   const handleExportFullCSV = () => {
@@ -193,13 +202,15 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
       <div className="measurement-grid">
         <MetricSummaryCard
           metric="temperature"
-          title="Chassis Temperature"
+          title="Chassis / Ambient Temperature"
           sensorLabel="DHT11 Sensor • GPIO 4"
           latestValue={sensors.temperature_c ?? null}
           unit="°C"
           history={history.map((h) => h.temperature)}
-          thresholdWarn={50.0}
-          thresholdCrit={65.0}
+          thresholdWarn={effectiveWarnTemp}
+          thresholdCrit={effectiveCritTemp}
+          sensorState={sensor_status?.temperature}
+          connectionStatus={connectionStatus}
           isSelected={primaryMetric === 'temperature'}
           onClick={() => setPrimaryMetric('temperature')}
         />
@@ -211,8 +222,10 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
           latestValue={sensors.current_a ?? null}
           unit="A"
           history={history.map((h) => h.current)}
-          thresholdWarn={3.5}
-          thresholdCrit={4.0}
+          thresholdWarn={effectiveWarnCurr}
+          thresholdCrit={effectiveCritCurr}
+          sensorState={sensor_status?.current}
+          connectionStatus={connectionStatus}
           isSelected={primaryMetric === 'current'}
           onClick={() => setPrimaryMetric('current')}
         />
@@ -222,27 +235,48 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
           title="Dynamic Vibration RMS"
           sensorLabel="ADXL345 3-Axis • I2C Bus 0 (100 Hz)"
           latestValue={sensors.vibration_g_rms ?? null}
-          unit="g"
+          unit="g RMS"
           history={history.map((h) => h.vibration)}
-          thresholdWarn={0.20}
-          thresholdCrit={0.80}
+          thresholdWarn={effectiveWarnVib}
+          thresholdCrit={effectiveCritVib}
+          sensorState={sensor_status?.vibration}
+          connectionStatus={connectionStatus}
           isSelected={primaryMetric === 'vibration'}
           onClick={() => setPrimaryMetric('vibration')}
+        />
+
+        <MetricSummaryCard
+          metric="vibration"
+          title="FFT Spectrum & ISO 10816"
+          sensorLabel="Nyquist 0-400 Hz • Bearing Faults & RUL"
+          latestValue={sensors.vibration_g_rms ?? null}
+          unit="g RMS"
+          history={history.map((h) => h.vibration)}
+          thresholdWarn={effectiveWarnVib}
+          thresholdCrit={effectiveCritVib}
+          sensorState={sensor_status?.vibration}
+          connectionStatus={connectionStatus}
+          isSelected={primaryMetric === 'fft_spectrum'}
+          onClick={() => setPrimaryMetric('fft_spectrum')}
         />
       </div>
 
       {/* Primary Chart Viewport (Focused Metric) */}
+      {primaryMetric === 'fft_spectrum' && (
+        <FFTSpectrumViewer motor={currentMotor} />
+      )}
+
       {primaryMetric === 'temperature' && (
         <EChartPanel
           title="Chassis Thermal Trajectory"
-          subtitle="DHT11 Temperature Over Time"
+          subtitle="DHT11 Ambient / Chassis Temperature Over Time"
           metric="temperature"
           unit="°C"
           motorId={motor_id}
           deviceId={device_id}
           data={tempSeries}
-          thresholdWarn={50.0}
-          thresholdCrit={65.0}
+          thresholdWarn={effectiveWarnTemp}
+          thresholdCrit={effectiveCritTemp}
           timeRange={timeRange}
           onTimeRangeChange={setTimeRange}
           isPrimary
@@ -258,8 +292,8 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
           motorId={motor_id}
           deviceId={device_id}
           data={currSeries}
-          thresholdWarn={3.5}
-          thresholdCrit={4.0}
+          thresholdWarn={effectiveWarnCurr}
+          thresholdCrit={effectiveCritCurr}
           timeRange={timeRange}
           onTimeRangeChange={setTimeRange}
           isPrimary
@@ -271,12 +305,12 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
           title="Mechanical Dynamic Vibration RMS"
           subtitle="ADXL345 High-Speed 100 Hz Synchronized RMS"
           metric="vibration"
-          unit="g"
+          unit="g RMS"
           motorId={motor_id}
           deviceId={device_id}
           data={vibSeries}
-          thresholdWarn={0.20}
-          thresholdCrit={0.80}
+          thresholdWarn={effectiveWarnVib}
+          thresholdCrit={effectiveCritVib}
           timeRange={timeRange}
           onTimeRangeChange={setTimeRange}
           isPrimary
@@ -293,8 +327,8 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
             motorId={motor_id}
             deviceId={device_id}
             data={tempSeries}
-            thresholdWarn={50.0}
-            thresholdCrit={65.0}
+            thresholdWarn={effectiveWarnTemp}
+            thresholdCrit={effectiveCritTemp}
             timeRange={timeRange}
           />
         )}
@@ -307,8 +341,8 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
             motorId={motor_id}
             deviceId={device_id}
             data={currSeries}
-            thresholdWarn={3.5}
-            thresholdCrit={4.0}
+            thresholdWarn={effectiveWarnCurr}
+            thresholdCrit={effectiveCritCurr}
             timeRange={timeRange}
           />
         )}
@@ -317,12 +351,12 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
           <EChartPanel
             title="Dynamic Vibration"
             metric="vibration"
-            unit="g"
+            unit="g RMS"
             motorId={motor_id}
             deviceId={device_id}
             data={vibSeries}
-            thresholdWarn={0.20}
-            thresholdCrit={0.80}
+            thresholdWarn={effectiveWarnVib}
+            thresholdCrit={effectiveCritVib}
             timeRange={timeRange}
           />
         )}

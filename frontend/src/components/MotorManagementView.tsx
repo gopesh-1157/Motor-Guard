@@ -1,4 +1,4 @@
-import { useState, useEffect, useId } from 'react'
+import { useState, useEffect, useId, useCallback } from 'react'
 import type { FC, FormEvent } from 'react'
 import {
   Plus,
@@ -187,19 +187,17 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
     setTimeout(() => setToastMsg(null), 3500)
   }
 
-  const getAuthHeaders = (): Record<string, string> => {
+  const getAuthHeaders = useCallback((): Record<string, string> => {
     const token = currentUser?.token || localStorage.getItem('motorguard_auth_token')
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }
     return headers
-  }
+  }, [currentUser?.token])
 
   // Load motors and devices from backend API
-  const loadData = async () => {
-    setIsLoading(true)
-    setErrorMsg(null)
+  const loadData = useCallback(async () => {
     try {
       const [motorsRes, devicesRes] = await Promise.all([
         fetch('/api/v1/motors', { headers: getAuthHeaders() }),
@@ -214,12 +212,12 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
         const devicesData = await devicesRes.json()
         setDevices(devicesData)
       }
-    } catch (err: any) {
+    } catch {
       setErrorMsg('Failed to connect to MotorGuard backend API. Ensure FastAPI is running on port 8000.')
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [getAuthHeaders])
 
   const loadAudit = async () => {
     try {
@@ -236,8 +234,33 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
   }
 
   useEffect(() => {
-    loadData()
-  }, [])
+    let isMounted = true
+    const init = async () => {
+      try {
+        const [motorsRes, devicesRes] = await Promise.all([
+          fetch('/api/v1/motors', { headers: getAuthHeaders() }),
+          fetch('/api/v1/devices', { headers: getAuthHeaders() }),
+        ])
+
+        if (motorsRes.ok && isMounted) {
+          const motorsData = await motorsRes.json()
+          setRegisteredMotors(motorsData)
+        }
+        if (devicesRes.ok && isMounted) {
+          const devicesData = await devicesRes.json()
+          setDevices(devicesData)
+        }
+      } catch {
+        if (isMounted) setErrorMsg('Failed to connect to MotorGuard backend API. Ensure FastAPI is running on port 8000.')
+      } finally {
+        if (isMounted) setIsLoading(false)
+      }
+    }
+    init()
+    return () => {
+      isMounted = false
+    }
+  }, [getAuthHeaders])
 
   // Pin conflict detection engine
   const detectPinConflicts = (): string[] => {
@@ -516,6 +539,8 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
             alert_persistence_sec: 10,
             alert_cooldown_sec: 60,
             hysteresis_percentage: 5.0,
+            calibration_status: editingMotor.thresholds.calibration_status || 'provisional',
+            provenance: editingMotor.thresholds.provenance || 'Motor management console configured',
           },
           assigned_device_id: editAssignedDevice || null,
         }),

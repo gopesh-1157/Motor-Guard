@@ -68,7 +68,6 @@ export const TechnicianView: FC<TechnicianViewProps> = ({
   // Fetch work orders for active technician
   const fetchWorkOrders = useCallback(async () => {
     if (!isAuthorized) return
-    setIsLoading(true)
     try {
       const token = localStorage.getItem('motorguard_auth_token')
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -87,8 +86,30 @@ export const TechnicianView: FC<TechnicianViewProps> = ({
   }, [isAuthorized])
 
   useEffect(() => {
-    fetchWorkOrders()
-  }, [fetchWorkOrders])
+    let isMounted = true
+    const init = async () => {
+      if (!isAuthorized) return
+      try {
+        const token = localStorage.getItem('motorguard_auth_token')
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (token) headers['Authorization'] = `Bearer ${token}`
+
+        const res = await fetch('/api/v1/work-orders', { headers })
+        if (res.ok && isMounted) {
+          const data = await res.json()
+          setWorkOrders(Array.isArray(data) ? data : [])
+        }
+      } catch {
+        // Network error
+      } finally {
+        if (isMounted) setIsLoading(false)
+      }
+    }
+    init()
+    return () => {
+      isMounted = false
+    }
+  }, [isAuthorized])
 
   // Accept assignment
   const handleAccept = async (woId: string) => {

@@ -327,6 +327,249 @@ class TestThresholdAlertsEngine:
         mock_collection.update_one.assert_called_once()
         mock_collection.insert_one.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_shaking_vibration_triggers_warning_alert(self):
+        """Vibration RMS > 0.100g (e.g. 0.145g from manual shaking) generates THRESHOLD_HIGH_VIBRATION alert."""
+        mock_collection = AsyncMock()
+        mock_collection.find_one = AsyncMock(return_value=None)
+        mock_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="alert_vib_1"))
+
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        service = AlertService(mock_db)
+
+        telemetry = {
+            "motor_id": "MTR-775-001",
+            "device_id": "esp32-node-001",
+            "sensors": {"current_a": 1.2, "temperature_c": 30.0, "vibration_g_rms": 0.145},
+            "inference": {"health_status": "healthy", "confidence": 0.90},
+        }
+
+        alerts = await service.evaluate_telemetry_for_alerts(telemetry)
+        assert len(alerts) == 1
+        assert alerts[0].trigger_type == "THRESHOLD_HIGH_VIBRATION"
+        assert alerts[0].severity == "WARNING"
+        assert alerts[0].trigger_value == 0.145
+        assert alerts[0].threshold_limit == 0.100
+        mock_collection.insert_one.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_peak_vibration_shock_triggers_alert(self):
+        """Instantaneous peak vibration shock > 0.350g triggers THRESHOLD_HIGH_VIBRATION even if window RMS is low."""
+        mock_collection = AsyncMock()
+        mock_collection.find_one = AsyncMock(return_value=None)
+        mock_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="alert_vib_peak"))
+
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        service = AlertService(mock_db)
+
+        telemetry = {
+            "motor_id": "MTR-775-001",
+            "device_id": "esp32-node-001",
+            "sensors": {"current_a": 1.0, "temperature_c": 28.0, "vibration_g_rms": 0.060, "vibration_g_peak": 0.520},
+            "inference": {"health_status": "healthy", "confidence": 0.92},
+        }
+
+        alerts = await service.evaluate_telemetry_for_alerts(telemetry)
+        assert len(alerts) == 1
+        assert alerts[0].trigger_type == "THRESHOLD_HIGH_VIBRATION"
+        assert alerts[0].trigger_value == 0.520
+        assert alerts[0].threshold_limit == 0.350
+
+    @pytest.mark.asyncio
+    async def test_vibration_normalization_auto_resolves_and_allows_retrigger(self):
+        """When vibration drops back to baseline, alert auto-resolves, allowing future shakes to re-trigger."""
+        now = datetime.now(timezone.utc)
+        mock_collection = AsyncMock()
+        def fake_find_one_and_update(filter_query, update_query, **kwargs):
+            if filter_query.get("trigger_type") == "THRESHOLD_HIGH_VIBRATION":
+                return {
+                    "_id": "alert_obj_1",
+                    "alert_id": "ALT-20261018-001",
+                    "motor_id": "MTR-775-001",
+                    "device_id": "esp32-node-001",
+                    "severity": "WARNING",
+                    "trigger_type": "THRESHOLD_HIGH_VIBRATION",
+                    "trigger_value": 0.030,
+                    "threshold_limit": 0.100,
+                    "unit": "g",
+                    "message": "Dynamic vibration normalized",
+                    "state": "RESOLVED",
+                    "triggered_at": now,
+                    "acknowledged_at": None,
+                    "acknowledged_by": None,
+                    "resolved_at": now,
+                    "resolved_by": "System (Auto-Normalized)",
+                    "resolution_notes": "Dynamic vibration normalized",
+                }
+            return None
+
+        mock_collection.find_one_and_update = AsyncMock(side_effect=fake_find_one_and_update)
+
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        service = AlertService(mock_db)
+
+        # Baseline safe telemetry
+        telemetry_safe = {
+            "motor_id": "MTR-775-001",
+            "device_id": "esp32-node-001",
+            "sensors": {"current_a": 1.0, "temperature_c": 28.0, "vibration_g_rms": 0.030},
+            "inference": {"health_status": "healthy", "confidence": 0.95},
+        }
+
+        alerts = await service.evaluate_telemetry_for_alerts(telemetry_safe)
+        assert len(alerts) == 0
+        auto_resolved = service.consume_auto_resolved_alerts()
+        assert len(auto_resolved) == 1
+        assert auto_resolved[0].state == "RESOLVED"
+        assert auto_resolved[0].trigger_type == "THRESHOLD_HIGH_VIBRATION"
+
+    @pytest.mark.asyncio
+    async def test_overcurrent_normalization_auto_resolves(self):
+        """When armature current drops below 90% limit, active overcurrent alert is auto-resolved."""
+        now = datetime.now(timezone.utc)
+        mock_collection = AsyncMock()
+        def fake_find_one_and_update(filter_query, update_query, **kwargs):
+            if filter_query.get("trigger_type") == "THRESHOLD_OVERCURRENT":
+                return {
+                    "_id": "alert_curr_1",
+                    "alert_id": "ALT-CURR-001",
+                    "motor_id": "MTR-775-001",
+                    "device_id": "esp32-node-001",
+                    "severity": "CRITICAL",
+                    "trigger_type": "THRESHOLD_OVERCURRENT",
+                    "trigger_value": 1.5,
+                    "threshold_limit": 4.0,
+                    "unit": "A",
+                    "message": "Armature current normalized",
+                    "state": "RESOLVED",
+                    "triggered_at": now,
+                    "acknowledged_at": None,
+                    "acknowledged_by": None,
+                    "resolved_at": now,
+                    "resolved_by": "System (Auto-Normalized)",
+                    "resolution_notes": "Armature current normalized",
+                }
+            return None
+
+        mock_collection.find_one_and_update = AsyncMock(side_effect=fake_find_one_and_update)
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        service = AlertService(mock_db)
+        telemetry = {
+            "motor_id": "MTR-775-001",
+            "device_id": "esp32-node-001",
+            "sensors": {"current_a": 1.5, "temperature_c": 30.0, "vibration_g_rms": 0.04},
+            "inference": {"health_status": "healthy", "confidence": 0.95},
+        }
+
+        alerts = await service.evaluate_telemetry_for_alerts(telemetry)
+        assert len(alerts) == 0
+        auto_resolved = service.consume_auto_resolved_alerts()
+        assert len(auto_resolved) == 1
+        assert auto_resolved[0].trigger_type == "THRESHOLD_OVERCURRENT"
+        assert auto_resolved[0].state == "RESOLVED"
+
+    @pytest.mark.asyncio
+    async def test_overtemperature_normalization_auto_resolves(self):
+        """When temperature cools down below limit - 2°C, active thermal alert is auto-resolved."""
+        now = datetime.now(timezone.utc)
+        mock_collection = AsyncMock()
+        def fake_find_one_and_update(filter_query, update_query, **kwargs):
+            if filter_query.get("trigger_type") == "THRESHOLD_OVERTEMPERATURE":
+                return {
+                    "_id": "alert_temp_1",
+                    "alert_id": "ALT-TEMP-001",
+                    "motor_id": "MTR-775-001",
+                    "device_id": "esp32-node-001",
+                    "severity": "WARNING",
+                    "trigger_type": "THRESHOLD_OVERTEMPERATURE",
+                    "trigger_value": 35.0,
+                    "threshold_limit": 50.0,
+                    "unit": "°C",
+                    "message": "Temperature normalized",
+                    "state": "RESOLVED",
+                    "triggered_at": now,
+                    "acknowledged_at": None,
+                    "acknowledged_by": None,
+                    "resolved_at": now,
+                    "resolved_by": "System (Auto-Normalized)",
+                    "resolution_notes": "Temperature normalized",
+                }
+            return None
+
+        mock_collection.find_one_and_update = AsyncMock(side_effect=fake_find_one_and_update)
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        service = AlertService(mock_db)
+        telemetry = {
+            "motor_id": "MTR-775-001",
+            "device_id": "esp32-node-001",
+            "sensors": {"current_a": 1.0, "temperature_c": 35.0, "vibration_g_rms": 0.04},
+            "inference": {"health_status": "healthy", "confidence": 0.95},
+        }
+
+        alerts = await service.evaluate_telemetry_for_alerts(telemetry)
+        assert len(alerts) == 0
+        auto_resolved = service.consume_auto_resolved_alerts()
+        assert len(auto_resolved) == 1
+        assert auto_resolved[0].trigger_type == "THRESHOLD_OVERTEMPERATURE"
+        assert auto_resolved[0].state == "RESOLVED"
+
+    @pytest.mark.asyncio
+    async def test_tinyml_inference_fault_auto_resolves_when_healthy(self):
+        """When Edge TinyML returns to healthy state, active critical inference fault is auto-resolved."""
+        now = datetime.now(timezone.utc)
+        mock_collection = AsyncMock()
+        def fake_find_one_and_update(filter_query, update_query, **kwargs):
+            if filter_query.get("trigger_type") == "CRITICAL_INFERENCE_FAULT":
+                return {
+                    "_id": "alert_ai_1",
+                    "alert_id": "ALT-AI-001",
+                    "motor_id": "MTR-775-001",
+                    "device_id": "esp32-node-001",
+                    "severity": "CRITICAL",
+                    "trigger_type": "CRITICAL_INFERENCE_FAULT",
+                    "trigger_value": 0.95,
+                    "threshold_limit": 0.5,
+                    "unit": "confidence",
+                    "message": "Edge TinyML normalized to healthy",
+                    "state": "RESOLVED",
+                    "triggered_at": now,
+                    "acknowledged_at": None,
+                    "acknowledged_by": None,
+                    "resolved_at": now,
+                    "resolved_by": "System (Auto-Normalized)",
+                    "resolution_notes": "Edge TinyML model status normalized to healthy",
+                }
+            return None
+
+        mock_collection.find_one_and_update = AsyncMock(side_effect=fake_find_one_and_update)
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_collection)
+
+        service = AlertService(mock_db)
+        telemetry = {
+            "motor_id": "MTR-775-001",
+            "device_id": "esp32-node-001",
+            "sensors": {"current_a": 1.0, "temperature_c": 30.0, "vibration_g_rms": 0.04},
+            "inference": {"health_status": "healthy", "confidence": 0.95},
+        }
+
+        alerts = await service.evaluate_telemetry_for_alerts(telemetry)
+        assert len(alerts) == 0
+        auto_resolved = service.consume_auto_resolved_alerts()
+        assert len(auto_resolved) == 1
+        assert auto_resolved[0].trigger_type == "CRITICAL_INFERENCE_FAULT"
+        assert auto_resolved[0].state == "RESOLVED"
+
 
 # ---- 4. Alert Lifecycle (Acknowledge & Resolve) Tests ------------------------
 

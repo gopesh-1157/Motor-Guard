@@ -63,14 +63,35 @@ class UserService:
         user = await self.get_by_username(username)
         if not user:
             return None
-        if not verify_password(password, user.password_hash):
+
+        password_valid = verify_password(password, user.password_hash)
+
+        # Allow seamless compatibility for default admin account in development:
+        # Accepts either 'adminpassword123' (README/modal standard) or 'admin123' (legacy demo seed).
+        if not password_valid and user.username == "admin":
+            from backend.app.config import settings
+            if settings.ENVIRONMENT.strip().lower() != "production":
+                if password in ("adminpassword123", "admin123"):
+                    if verify_password("admin123", user.password_hash) or verify_password("adminpassword123", user.password_hash):
+                        password_valid = True
+                        if password == "adminpassword123":
+                            try:
+                                new_hash = get_password_hash("adminpassword123")
+                                await self.collection.update_one(
+                                    {"username": "admin"},
+                                    {"$set": {"password_hash": new_hash}}
+                                )
+                                user.password_hash = new_hash
+                            except Exception as ex:
+                                logger.warning("Could not migrate admin password hash: %s", ex)
+
+        if not password_valid:
             return None
         if not user.is_active:
             return None
 
         # Update last login
         now = datetime.now(timezone.utc)
-        from bson import ObjectId
         try:
             await self.collection.update_one(
                 {"username": username},
@@ -105,12 +126,17 @@ class UserService:
         count = await self.collection.count_documents({})
         if count == 0:
             from backend.app.config import settings
-            admin_pwd = settings.ADMIN_INITIAL_PASSWORD or "adminpassword123"
-            if settings.ENVIRONMENT == "production" and not settings.ADMIN_INITIAL_PASSWORD:
+
+            if settings.ENVIRONMENT.strip().lower() == "production" and not settings.ADMIN_INITIAL_PASSWORD:
                 logger.critical(
-                    "SECURITY WARNING: Seeding admin in production without ADMIN_INITIAL_PASSWORD configured! "
-                    "Rotate admin password immediately!"
+                    "FATAL SECURITY VIOLATION: Attempted to seed default admin in production without ADMIN_INITIAL_PASSWORD configured! "
+                    "Insecure default password fallback is strictly prohibited in production."
                 )
+                raise RuntimeError(
+                    "Production startup aborted: ADMIN_INITIAL_PASSWORD environment variable is required to seed the initial Admin account."
+                )
+
+            admin_pwd = settings.ADMIN_INITIAL_PASSWORD or "adminpassword123"
             logger.info("No users found. Seeding initial Admin user...")
             admin_user = UserCreate(
                 username="admin",

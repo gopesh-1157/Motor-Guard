@@ -355,6 +355,9 @@ export const RBACLoginModal: FC<RBACLoginModalProps> = ({
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+                <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Default credentials: <strong style={{ color: 'var(--text-main)' }}>admin</strong> / <strong style={{ color: 'var(--brand-primary)' }}>adminpassword123</strong></span>
+                </div>
               </div>
 
               {/* Remember station checkbox */}

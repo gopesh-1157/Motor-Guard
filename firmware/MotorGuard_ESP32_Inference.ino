@@ -44,12 +44,29 @@
 // ============================================================
 // NETWORK & MQTT BROKER CONFIGURATION
 // ============================================================
-#ifndef USE_CLOUD_MQTT
-  #define USE_CLOUD_MQTT 0
+// Network Mode Options:
+//   NET_MODE_LOCAL_WIFI_STA = 1 -> Connects to your Home/Office Wi-Fi router & PC broker (RECOMMENDED for real motor testing)
+//   NET_MODE_SOFTAP         = 0 -> ESP32 creates standalone Access Point (192.168.4.1)
+//   NET_MODE_CLOUD_TLS      = 2 -> Production Cloud Broker over MQTTS with TLS (Port 8883)
+#ifndef NETWORK_MODE
+  #define NETWORK_MODE 1
 #endif
 
-#if USE_CLOUD_MQTT
-  // Production Cloud Broker over MQTTS TLS (Port 8883)
+#if (NETWORK_MODE == 1)
+  // Mode 1: Local Station Wi-Fi Mode (Direct to your Wi-Fi router & PC Mosquitto broker)
+  // CHANGE THESE 3 LINES TO MATCH YOUR LOCAL NETWORK:
+  const char* STA_WIFI_SSID     = "YOUR_WIFI_SSID";     // Your home/lab Wi-Fi network name
+  const char* STA_WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // Your Wi-Fi password
+  const char* MQTT_BROKER       = "192.168.1.100";      // IP address of your PC running Mosquitto / FastAPI
+  const int   MQTT_PORT         = 1883;
+  const char* MQTT_USER         = "";
+  const char* MQTT_PASS         = "";
+  const char* DEVICE_ID         = "esp32-node-001";
+  const char* FIRMWARE_VER      = "1.0.1-LOCAL-STA";
+  WiFiClient espClient;
+
+#elif (NETWORK_MODE == 2)
+  // Mode 2: Production Cloud Broker over MQTTS TLS (Port 8883)
   const char* MQTT_BROKER   = CLOUD_MQTT_BROKER;
   const int   MQTT_PORT     = CLOUD_MQTT_PORT;
   const char* MQTT_USER     = CLOUD_MQTT_USER;
@@ -57,8 +74,9 @@
   const char* DEVICE_ID     = CLOUD_DEVICE_ID;
   const char* FIRMWARE_VER  = "1.0.1-CLOUD-TLS";
   WiFiClientSecure espClient;
+
 #else
-  // Local Development SoftAP Mode (192.168.4.2:1883)
+  // Mode 0: Local Development SoftAP Mode (192.168.4.2:1883)
   const char* AP_SSID       = "MotorGuard-ESP32-AP";
   const char* AP_PASSWORD   = "MotorGuard123";
   const char* MQTT_BROKER   = "192.168.4.2";
@@ -108,12 +126,17 @@ bool adxlOnline = false;
 #define CURRENT_PIN 34
 const float ACS_SENSITIVITY = 0.100f; // 100 mV/A for ACS712-20A
 const float VOLTAGE_DIVIDER_RATIO = 0.6667f; // 20k / (10k + 20k)
-// Adjusted deadband to 0.20 A to exceed the 10-20 mV typical ESP32 ADC noise floor
-const float CURRENT_DEADBAND_A = 0.20f;
+// Effective sensitivity at ESP32 ADC pin: S_pin = S_sensor * k_div = 100 mV/A * 0.6667 = 66.67 mV/A (0.06667 V/A)
+const float EFFECTIVE_SENSITIVITY_AT_PIN = ACS_SENSITIVITY * VOLTAGE_DIVIDER_RATIO;
+// Noise deadband set to 0.05 A (distinguishes ADC noise floor from genuine no-load motor draw 0.35-0.50 A)
+const float CURRENT_DEADBAND_A = 0.05f;
 
-// Operational Thresholds
+// Operational Alert Thresholds (Synchronized with Backend Rules Engine)
 const float MOTOR_SUPPLY_VOLTS = 12.0f;
 const float OVERCURRENT_LIMIT_A = 4.0f;
+const float OVERTEMPERATURE_LIMIT_C = 50.0f;
+const float MAX_VIBRATION_LIMIT_G = 0.100f;
+const float MAX_PEAK_VIBRATION_LIMIT_G = 0.350f;
 
 // ADXL345 Vibration Sampling Settings (800 Hz Output Data Rate)
 // 800 Hz corresponds to 1250 us interval. 128 samples captures a clean 160 ms window.
@@ -131,12 +154,29 @@ struct VibrationMetrics {
   bool valid;
 };
 
+// Independent Rule-Based Safety Evaluation Structure
+struct SafetyEvaluation {
+  String status;            // SAFE, WARNING, CRITICAL, UNKNOWN
+  String currentState;      // NORMAL, WARNING, CRITICAL, UNKNOWN
+  String vibrationState;    // NORMAL, WARNING, CRITICAL, UNKNOWN
+  String temperatureState;  // NORMAL, WARNING, CRITICAL, UNKNOWN
+  String activeReasons[4];
+  int reasonCount;
+  int configVersion;
+  const char* calibrationStatus;
+};
+
 // Sensor Readings & Active Features
-float zeroPointVolts = 2.50f;
+float zeroPointVolts = 2.50f;         // Zero-current offset at sensor output (2.50V nominal)
+float zeroPointPinVolts = 1.667f;     // Zero-current offset at ESP32 ADC pin (1.667V nominal)
+bool  currentCalibrated = false;
 float currentAmps = 0.0f;
+float currentPeakAmps = 0.0f;
 float vibrationRMS_g = 0.0f;
 float temperatureC = 0.0f;
+float ambientTemperatureC = 0.0f;
 VibrationMetrics currentVibration = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false};
+SafetyEvaluation currentSafety = {"UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", {}, 0, 1, "unconfigured"};
 
 #if DATA_COLLECTION_MODE
 char currentLabel = 'h';   // 'h'=healthy, 'o'=overload, 'i'=imbalance, 'l'=loose_mount
@@ -166,7 +206,7 @@ bool ntpSynced = false;
 // OFFLINE STORE-AND-FORWARD QUEUE (RAM RING BUFFER)
 // ============================================================
 #define OFFLINE_QUEUE_CAPACITY 32
-#define MAX_PAYLOAD_LEN 768
+#define MAX_PAYLOAD_LEN 1024
 
 struct QueuedMessage {
   char payload[MAX_PAYLOAD_LEN];
@@ -266,48 +306,85 @@ String getISOTimestamp() {
 // ============================================================
 
 void calibrateACS712() {
-  Serial.println("[ACS712] Calibrating zero-point... Ensure motor is completely OFF.");
+  Serial.println(F("[ACS712] Calibrating zero-point... Ensure motor is completely OFF."));
   delay(800);
 
   const int calibrationSamples = 500;
-  float voltageSum = 0.0f;
+  float pinVoltageSum = 0.0f;
+  float minPinV = 99.0f;
+  float maxPinV = -99.0f;
 
   for (int i = 0; i < calibrationSamples; i++) {
     uint32_t mv = analogReadMilliVolts(CURRENT_PIN);
     float pinVoltage = mv / 1000.0f;
-    float acsVoltage = pinVoltage / VOLTAGE_DIVIDER_RATIO;
-    voltageSum += acsVoltage;
+    if (pinVoltage < minPinV) minPinV = pinVoltage;
+    if (pinVoltage > maxPinV) maxPinV = pinVoltage;
+    pinVoltageSum += pinVoltage;
     delay(2);
   }
 
-  zeroPointVolts = voltageSum / calibrationSamples;
-  Serial.printf("[ACS712] Calibrated zero offset: %.3f V\n", zeroPointVolts);
+  float avgPinVoltage = pinVoltageSum / calibrationSamples;
+  float avgAcsVoltage = avgPinVoltage / VOLTAGE_DIVIDER_RATIO;
+  float pinSpread = maxPinV - minPinV;
+
+  // Validation bounds:
+  // ACS712-20A nominal zero is 2.50V at 5V supply. With divider 0.6667, nominal ADC pin is 1.667V.
+  // Valid resting zero pin range: [1.30V, 2.05V] (equivalent to ACS 1.95V - 3.07V).
+  // Spread must be < 0.20V (if motor is active or sensor floating, spread will be high).
+  if (avgPinVoltage >= 1.30f && avgPinVoltage <= 2.05f && pinSpread < 0.20f) {
+    zeroPointPinVolts = avgPinVoltage;
+    zeroPointVolts = avgAcsVoltage;
+    currentCalibrated = true;
+    Serial.printf("[ACS712] Zero calibration SUCCESS: V_pin=%.3f V, V_sensor=%.3f V (spread: %.3f V, S_pin: %.4f V/A, VALID)\n",
+      zeroPointPinVolts, zeroPointVolts, pinSpread, EFFECTIVE_SENSITIVITY_AT_PIN);
+  } else {
+    zeroPointVolts = 2.50f; // Nominal fallback
+    zeroPointPinVolts = 2.50f * VOLTAGE_DIVIDER_RATIO;
+    currentCalibrated = false;
+    Serial.printf("[ACS712] WARNING: Zero calibration REJECTED (V_pin: %.3f V, spread: %.3f V). Fallback to nominal 2.500 V (pin: %.3f V). Marked UNCALIBRATED.\n",
+      avgPinVoltage, pinSpread, zeroPointPinVolts);
+  }
 }
 
 float readMotorCurrent() {
-  float voltageSum = 0.0f;
-  const int SAMPLES = 120; // Increased multi-sampling to damp ESP32 ADC noise
+  float pinVoltageSum = 0.0f;
+  float maxInstantCurrent = 0.0f;
+  const int SAMPLES = 120; // 120 samples damped over ~30 ms
 
   for (int i = 0; i < SAMPLES; i++) {
     uint32_t mv = analogReadMilliVolts(CURRENT_PIN);
     float pinVoltage = mv / 1000.0f;
-    float acsVoltage = pinVoltage / VOLTAGE_DIVIDER_RATIO;
-    voltageSum += acsVoltage;
+
+    // Disconnection / wire break detection:
+    // If pin is grounded (< 0.15V) or floating/saturated (> 3.15V)
+    if (pinVoltage < 0.15f || pinVoltage > 3.15f) {
+      currentPeakAmps = NAN;
+      return NAN;
+    }
+
+    pinVoltageSum += pinVoltage;
+
+    // Instantaneous current calculation using effective sensitivity directly at ADC pin:
+    // current_A = |V_pin - V_zero_pin| / S_pin
+    float instCurrent = fabs((pinVoltage - zeroPointPinVolts) / EFFECTIVE_SENSITIVITY_AT_PIN);
+    if (instCurrent > maxInstantCurrent) {
+      maxInstantCurrent = instCurrent;
+    }
     delayMicroseconds(250);
   }
 
-  float averageVoltage = voltageSum / SAMPLES;
+  float avgPinVoltage = pinVoltageSum / SAMPLES;
+  float current = fabs((avgPinVoltage - zeroPointPinVolts) / EFFECTIVE_SENSITIVITY_AT_PIN);
 
-  if (averageVoltage < 0.20f || averageVoltage > 4.80f) {
-    return NAN; // Sensor disconnected / wire break
-  }
-
-  float current = (averageVoltage - zeroPointVolts) / ACS_SENSITIVITY;
-  current = fabs(current);
-
+  // Apply noise floor deadband (0.05 A), keeping legitimate running currents (0.35-0.50 A) intact
   if (current < CURRENT_DEADBAND_A) {
     current = 0.0f;
   }
+  if (maxInstantCurrent < CURRENT_DEADBAND_A) {
+    maxInstantCurrent = 0.0f;
+  }
+
+  currentPeakAmps = maxInstantCurrent;
   return current;
 }
 
@@ -321,9 +398,11 @@ float readTemperature() {
   float temp = dht.readTemperature();
   if (isnan(temp) || temp < -20.0f || temp > 120.0f) {
     dhtOnline = false;
+    ambientTemperatureC = NAN;
     return NAN;
   }
   dhtOnline = true;
+  ambientTemperatureC = temp;
   return temp;
 }
 
@@ -368,13 +447,14 @@ VibrationMetrics calculateVibrationFeatures() {
   meanY /= VIBRATION_SAMPLES;
   meanZ /= VIBRATION_SAMPLES;
 
+  float sumDynSq = 0.0f;
   float sumSqX = 0.0f;
   float sumSqY = 0.0f;
   float sumSqZ = 0.0f;
   float maxInstantG = 0.0f;
 
   for (int i = 0; i < VIBRATION_SAMPLES; i++) {
-    // Remove static DC gravity vector to extract dynamic alternating vibration
+    // Dynamic AC vibration with per-axis mean removed
     float dx = ax[i] - meanX;
     float dy = ay[i] - meanY;
     float dz = az[i] - meanZ;
@@ -384,6 +464,8 @@ VibrationMetrics calculateVibrationFeatures() {
     sumSqZ += (dz * dz);
 
     float instVectorG = sqrt(dx * dx + dy * dy + dz * dz);
+    sumDynSq += (dx * dx + dy * dy + dz * dz);
+
     if (instVectorG > maxInstantG) {
       maxInstantG = instVectorG;
     }
@@ -392,7 +474,8 @@ VibrationMetrics calculateVibrationFeatures() {
   m.rmsX = sqrt(sumSqX / VIBRATION_SAMPLES);
   m.rmsY = sqrt(sumSqY / VIBRATION_SAMPLES);
   m.rmsZ = sqrt(sumSqZ / VIBRATION_SAMPLES);
-  m.totalRMS = sqrt((sumSqX + sumSqY + sumSqZ) / VIBRATION_SAMPLES);
+  // Authoritative Dynamic Vibration RMS: sqrt(mean(x_dyn^2 + y_dyn^2 + z_dyn^2))
+  m.totalRMS = sqrt(sumDynSq / VIBRATION_SAMPLES);
   m.peakG = maxInstantG;
   m.crestFactor = (m.totalRMS > 0.001f) ? (m.peakG / m.totalRMS) : 1.0f;
   m.valid = true;
@@ -545,15 +628,6 @@ void runMotorGuardInference(float temp, float vib, float curr) {
     inferenceStatus = "PREDICTED";
     healthStatus = String(bestLabel);
     topConfidence = maxVal;
-
-    // Hard deterministic safety cutoff overrides (consistent across both paths)
-    if (curr >= OVERCURRENT_LIMIT_A || temp >= 75.0f || vib >= 0.80f) {
-      healthStatus = "critical";
-    } else if (curr > 3.0f || temp >= 50.0f || vib >= 0.20f) {
-      if (healthStatus == "healthy") {
-        healthStatus = "warning";
-      }
-    }
     return;
   } else {
     inferenceStatus = "MODEL_ERROR";
@@ -563,23 +637,79 @@ void runMotorGuardInference(float temp, float vib, float curr) {
     return;
   }
 #else
-  hasInferenceProbabilities = true;
-  inferenceStatus = "PREDICTED";
-
-  if (curr > OVERCURRENT_LIMIT_A || vib > 0.8f || temp > 75.0f) {
-    healthStatus = "critical";
-    confCritical = 0.95f; confWarning = 0.04f; confHealthy = 0.01f;
-    topConfidence = 0.95f;
-  } else if (curr > 3.0f || vib > 0.2f || temp > 50.0f) {
-    healthStatus = "warning";
-    confCritical = 0.05f; confWarning = 0.90f; confHealthy = 0.05f;
-    topConfidence = 0.90f;
-  } else {
-    healthStatus = "healthy";
-    confCritical = 0.01f; confWarning = 0.04f; confHealthy = 0.95f;
-    topConfidence = 0.95f;
-  }
+  // When Edge Impulse library is not compiled, do NOT fabricate fake predictions
+  inferenceStatus = "MODEL_UNAVAILABLE";
+  healthStatus = "unknown";
+  hasInferenceProbabilities = false;
+  confHealthy = 0.0f;
+  confWarning = 0.0f;
+  confCritical = 0.0f;
+  topConfidence = 0.0f;
 #endif
+}
+
+// ============================================================
+// INDEPENDENT DETERMINISTIC SAFETY RULES EVALUATION
+// ============================================================
+
+SafetyEvaluation evaluateSafetyRules(float curr, float currPeak, float vib, float vibPeak, float temp) {
+  SafetyEvaluation s;
+  s.status = "SAFE";
+  s.currentState = "NORMAL";
+  s.vibrationState = "NORMAL";
+  s.temperatureState = "NORMAL";
+  s.reasonCount = 0;
+  s.configVersion = 1;
+  s.calibrationStatus = currentCalibrated ? "provisional" : "unconfigured";
+
+  // 1. Overcurrent check
+  if (isnan(curr)) {
+    s.currentState = "UNKNOWN";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "CURRENT_SENSOR_DISCONNECTED";
+  } else if (curr >= OVERCURRENT_LIMIT_A || currPeak >= 5.0f) {
+    s.currentState = "CRITICAL";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "CURRENT_CRITICAL_EXCEEDED";
+  } else if (curr >= 3.0f) {
+    s.currentState = "WARNING";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "CURRENT_WARNING_EXCEEDED";
+  }
+
+  // 2. Dynamic Vibration check
+  if (isnan(vib)) {
+    s.vibrationState = "UNKNOWN";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "VIBRATION_SENSOR_DISCONNECTED";
+  } else if (vib >= 0.400f || vibPeak >= 0.800f) {
+    s.vibrationState = "CRITICAL";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "VIBRATION_CRITICAL_EXCEEDED";
+  } else if (vib >= MAX_VIBRATION_LIMIT_G || vibPeak >= MAX_PEAK_VIBRATION_LIMIT_G) {
+    s.vibrationState = "WARNING";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "VIBRATION_WARNING_EXCEEDED";
+  }
+
+  // 3. Ambient air temperature check
+  if (isnan(temp)) {
+    s.temperatureState = "UNKNOWN";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "TEMPERATURE_SENSOR_DISCONNECTED";
+  } else if (temp >= 60.0f) {
+    s.temperatureState = "CRITICAL";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "AMBIENT_TEMP_CRITICAL_EXCEEDED";
+  } else if (temp >= OVERTEMPERATURE_LIMIT_C) {
+    s.temperatureState = "WARNING";
+    if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "AMBIENT_TEMP_WARNING_EXCEEDED";
+  }
+
+  // Combine transparently into system safety state
+  if (s.currentState == "CRITICAL" || s.vibrationState == "CRITICAL" || s.temperatureState == "CRITICAL") {
+    s.status = "CRITICAL";
+  } else if (s.currentState == "WARNING" || s.vibrationState == "WARNING" || s.temperatureState == "WARNING") {
+    s.status = "WARNING";
+  } else if (s.currentState == "UNKNOWN" || s.vibrationState == "UNKNOWN" || s.temperatureState == "UNKNOWN") {
+    s.status = "UNKNOWN";
+  } else {
+    s.status = "SAFE";
+  }
+
+  return s;
 }
 
 // ============================================================
@@ -590,20 +720,33 @@ String buildTelemetryJSON() {
   String eventId = generateUUIDv4();
   String timestamp = getISOTimestamp();
 
+  // Evaluate safety rules independently (never suppressed by ML)
+  currentSafety = evaluateSafetyRules(currentAmps, currentPeakAmps, vibrationRMS_g, currentVibration.peakG, temperatureC);
+
   const char* tempStatus = isnan(temperatureC) ? "DISCONNECTED" : "OK";
-  const char* currStatus = isnan(currentAmps) ? "DISCONNECTED" : "OK";
+  const char* currStatus = isnan(currentAmps) ? "DISCONNECTED" : (currentCalibrated ? "OK" : "UNCALIBRATED");
   const char* vibStatus  = isnan(vibrationRMS_g) ? "DISCONNECTED" : "OK";
 
-  char tempStr[16], currStr[16], vibStr[16];
+  char tempStr[16], currStr[16], currPeakStr[16], vibStr[16], peakStr[16];
 
   if (isnan(temperatureC)) strcpy(tempStr, "null");
   else snprintf(tempStr, sizeof(tempStr), "%.1f", temperatureC);
 
-  if (isnan(currentAmps)) strcpy(currStr, "null");
-  else snprintf(currStr, sizeof(currStr), "%.2f", currentAmps);
+  if (isnan(currentAmps)) {
+    strcpy(currStr, "null");
+    strcpy(currPeakStr, "null");
+  } else {
+    snprintf(currStr, sizeof(currStr), "%.2f", currentAmps);
+    snprintf(currPeakStr, sizeof(currPeakStr), "%.2f", currentPeakAmps);
+  }
 
-  if (isnan(vibrationRMS_g)) strcpy(vibStr, "null");
-  else snprintf(vibStr, sizeof(vibStr), "%.3f", vibrationRMS_g);
+  if (isnan(vibrationRMS_g)) {
+    strcpy(vibStr, "null");
+    strcpy(peakStr, "null");
+  } else {
+    snprintf(vibStr, sizeof(vibStr), "%.3f", vibrationRMS_g);
+    snprintf(peakStr, sizeof(peakStr), "%.3f", currentVibration.peakG);
+  }
 
   char probStr[128];
   if (hasInferenceProbabilities) {
@@ -615,6 +758,14 @@ String buildTelemetryJSON() {
     strcpy(probStr, "null");
   }
 
+  // Active safety reasons formatting
+  String reasonsJson = "[";
+  for (int r = 0; r < currentSafety.reasonCount; r++) {
+    if (r > 0) reasonsJson += ",";
+    reasonsJson += "\"" + currentSafety.activeReasons[r] + "\"";
+  }
+  reasonsJson += "]";
+
   char payload[MAX_PAYLOAD_LEN];
   snprintf(payload, sizeof(payload),
     "{"
@@ -625,15 +776,39 @@ String buildTelemetryJSON() {
       "\"source\":\"hardware\","
       "\"seq\":%lu,"
       "\"timestamp\":\"%s\","
-      "\"sensors\":{\"temperature_c\":%s,\"current_a\":%s,\"vibration_g_rms\":%s},"
-      "\"sensor_status\":{\"temperature\":\"%s\",\"current\":\"%s\",\"vibration\":\"%s\"},"
+      "\"sensors\":{"
+        "\"temperature_c\":%s,"
+        "\"ambient_temperature_c\":%s,"
+        "\"case_temperature_c\":null,"
+        "\"current_a\":%s,"
+        "\"current_peak_a\":%s,"
+        "\"vibration_g_rms\":%s,"
+        "\"vibration_g_peak\":%s"
+      "},"
+      "\"sensor_status\":{"
+        "\"temperature\":\"%s\","
+        "\"current\":\"%s\","
+        "\"vibration\":\"%s\","
+        "\"current_calibrated\":%s,"
+        "\"current_zero_offset_v\":%.3f"
+      "},"
       "\"inference\":{"
         "\"status\":\"%s\","
         "\"health_status\":\"%s\","
         "\"confidence\":%.3f,"
         "\"probabilities\":%s,"
         "\"model_version\":\"ei-motoguard-v1.0.1\","
+        "\"input_feature_version\":\"1.0.0-3f\","
         "\"inference_time_ms\":%d"
+      "},"
+      "\"safety\":{"
+        "\"status\":\"%s\","
+        "\"current_state\":\"%s\","
+        "\"vibration_state\":\"%s\","
+        "\"temperature_state\":\"%s\","
+        "\"active_reasons\":%s,"
+        "\"configuration_version\":%d,"
+        "\"calibration_status\":\"%s\""
       "},"
       "\"diagnostics\":{"
         "\"wifi_rssi_dbm\":0,"
@@ -646,13 +821,22 @@ String buildTelemetryJSON() {
     MOTOR_ID,
     telemetrySeq,
     timestamp.c_str(),
-    tempStr, currStr, vibStr,
+    tempStr, tempStr, currStr, currPeakStr, vibStr, peakStr,
     tempStatus, currStatus, vibStatus,
+    currentCalibrated ? "true" : "false",
+    zeroPointVolts,
     inferenceStatus.c_str(),
     healthStatus.c_str(),
     topConfidence,
     probStr,
     eiDspTimeMs + eiClassificationTimeMs,
+    currentSafety.status.c_str(),
+    currentSafety.currentState.c_str(),
+    currentSafety.vibrationState.c_str(),
+    currentSafety.temperatureState.c_str(),
+    reasonsJson.c_str(),
+    currentSafety.configVersion,
+    currentSafety.calibrationStatus,
     ESP.getFreeHeap(),
     millis() / 1000
   );
@@ -701,10 +885,14 @@ void handleRoot() {
     "<div id='badge' class='badge badge-unknown'>INITIALIZING...</div>"
     "</div>"
     "<div class='grid'>"
-    "<div class='card'><div class='label'>Chassis Temperature</div><div class='val' id='temp'>--<span class='unit'>&deg;C</span></div></div>"
+    "<div class='card'><div class='label'>Ambient Air Temp (DHT11)</div><div class='val' id='temp'>--<span class='unit'>&deg;C</span></div></div>"
     "<div class='card'><div class='label'>Armature Current</div><div class='val' id='curr'>--<span class='unit'>A</span></div></div>"
     "<div class='card'><div class='label'>Dynamic Vibration RMS</div><div class='val' id='vib'>--<span class='unit'>g</span></div></div>"
     "<div class='card'><div class='label'>TinyML Confidence</div><div class='val' id='conf'>--<span class='unit'>%</span></div></div>"
+    "</div>"
+    "<div class='grid' style='margin-bottom:20px;'>"
+    "<div class='card'><div class='label'>Rule Safety State</div><div class='val' id='safety-state' style='font-size:20px;'>--</div></div>"
+    "<div class='card'><div class='label'>Current Sensor Calibration</div><div class='val' id='calib-state' style='font-size:20px;'>--</div></div>"
     "</div>"
     "<div class='card'>"
     "<div class='label'>Live Telemetry JSON Contract (v1.0.0)</div>"
@@ -721,8 +909,10 @@ void handleRoot() {
     "  document.getElementById('vib').innerHTML = (d.sensors.vibration_g_rms !== null ? d.sensors.vibration_g_rms.toFixed(3) : 'DISCONNECTED') + '<span class=\"unit\">g</span>';"
     "  document.getElementById('conf').innerHTML = (d.inference.confidence * 100).toFixed(0) + '<span class=\"unit\">%</span>';"
     "  const b = document.getElementById('badge');"
-    "  b.innerText = d.inference.health_status.toUpperCase();"
+    "  b.innerText = 'AI: ' + d.inference.health_status.toUpperCase() + ' | SAFETY: ' + (d.safety ? d.safety.status : 'UNKNOWN');"
     "  b.className = 'badge badge-' + d.inference.health_status;"
+    "  document.getElementById('safety-state').innerText = (d.safety ? d.safety.status + ' (' + d.safety.active_reasons.join(', ') + ')' : 'UNKNOWN');"
+    "  document.getElementById('calib-state').innerText = (d.sensor_status.current_calibrated ? 'CALIBRATED (' + d.sensor_status.current_zero_offset_v.toFixed(3) + ' V)' : 'UNCALIBRATED (NOMINAL 2.5V)');"
     "  document.getElementById('raw').innerText = JSON.stringify(d, null, 2);"
     " }catch(e){console.error(e);}"
     "}"
@@ -751,8 +941,26 @@ void publishTelemetry() {
     enqueueOfflineMessage(payload.c_str());
   }
 
-  Serial.printf("[SAMPLE #%lu] T: %.1f C | I: %.2f A | Vib: %.3f g | AI: %s (%.0f%%)\n",
-    telemetrySeq, temperatureC, currentAmps, vibrationRMS_g, healthStatus.c_str(), topConfidence * 100
+  bool isSafetyCrit = (currentSafety.status == "CRITICAL");
+  bool isSafetyWarn = (currentSafety.status == "WARNING");
+  bool isAiCritical = (healthStatus == "critical");
+  bool isAiWarning  = (healthStatus == "warning");
+
+  String alertTags = "";
+  for (int r = 0; r < currentSafety.reasonCount; r++) {
+    alertTags += " [" + currentSafety.activeReasons[r] + "]";
+  }
+  if (isAiCritical) alertTags += " [AI CRITICAL!]";
+  else if (isAiWarning) alertTags += " [AI WARNING!]";
+
+  Serial.printf("[SAMPLE #%lu] T: %.1f C | I: %.2f A (Pk: %.2f A) | Vib: %.3f g (Pk: %.3f g) | Safety: %s | AI: %s (%.0f%%)%s\n",
+    telemetrySeq,
+    temperatureC,
+    currentAmps, currentPeakAmps,
+    vibrationRMS_g, currentVibration.peakG,
+    currentSafety.status.c_str(),
+    healthStatus.c_str(), topConfidence * 100,
+    alertTags.c_str()
   );
 }
 
@@ -767,26 +975,39 @@ void updateOLED(float temp, float curr, float vib) {
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
 
+  // Top header status line: Priority to Safety rule status, then AI
   display.setCursor(0, 0);
-  display.printf("AP: 192.168.4.1 [%s]", healthStatus.c_str());
+  if (currentSafety.status == "CRITICAL") {
+    display.printf("! SAFETY CRITICAL !");
+  } else if (currentSafety.status == "WARNING") {
+    display.printf("! SAFETY WARNING !");
+  } else if (healthStatus == "critical") {
+    display.printf("! AI CRITICAL !");
+  } else if (healthStatus == "warning") {
+    display.printf("WARN: AI [%.0f%%]", topConfidence * 100);
+  } else {
+    display.printf("AP: 192.168.4.1 [OK]");
+  }
 
   display.setCursor(0, 14);
-  if (isnan(temp)) display.println("Temp: DISCONNECTED");
-  else display.printf("Temp: %.1f C", temp);
+  if (isnan(temp)) display.println("Air : DISCONNECTED");
+  else display.printf("Air : %.1f C (%s)", temp, currentSafety.temperatureState.c_str());
 
   display.setCursor(0, 26);
   if (isnan(curr)) display.println("Curr: DISCONNECTED");
-  else display.printf("Curr: %.2f A", curr);
+  else display.printf("Curr: %.2fA (%s)", curr, currentSafety.currentState.c_str());
 
   display.setCursor(0, 38);
   if (isnan(vib)) display.println("Vib : DISCONNECTED");
-  else display.printf("Vib : %.3f g", vib);
+  else display.printf("Vib : %.3fg (%s)", vib, currentSafety.vibrationState.c_str());
 
   display.setCursor(0, 50);
   if (inferenceStatus == "INPUT_INVALID") {
     display.println("AI  : SENSOR ERROR");
+  } else if (inferenceStatus == "MODEL_UNAVAILABLE") {
+    display.println("AI  : LIB NOT COMPILED");
   } else {
-    display.printf("AI  : %.0f%% | Seq #%lu", topConfidence * 100, telemetrySeq);
+    display.printf("AI  : %s (%.0f%%)", healthStatus.c_str(), topConfidence * 100);
   }
 
   display.display();
@@ -800,8 +1021,27 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  // 1. Network Initialization (Cloud Station MQTTS or Local SoftAP)
-#if USE_CLOUD_MQTT
+  // 1. Network Initialization (Local Station Wi-Fi, Cloud TLS, or Standalone SoftAP)
+#if (NETWORK_MODE == 1)
+  Serial.println("\n========================================");
+  Serial.println("  MOTORGUARD ESP32 LOCAL STATION WI-FI  ");
+  Serial.println("========================================");
+  Serial.printf("[Wi-Fi] Connecting to station '%s'...\n", STA_WIFI_SSID);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(STA_WIFI_SSID, STA_WIFI_PASSWORD);
+  int wifiAttempts = 0;
+  while (WiFi.status() != WL_CONNECTED && wifiAttempts < 30) {
+    delay(500);
+    Serial.print(".");
+    wifiAttempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\n[Wi-Fi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("[MQTT] Targeting local broker at %s:%d\n", MQTT_BROKER, MQTT_PORT);
+  } else {
+    Serial.println("\n[Wi-Fi] WARNING: Failed to connect to station Wi-Fi. Verify SSID/password.");
+  }
+#elif (NETWORK_MODE == 2)
   Serial.println("\n========================================");
   Serial.println("  MOTORGUARD ESP32 SECURE CLOUD MQTTS   ");
   Serial.println("========================================");

@@ -41,6 +41,8 @@ async def test_subscriber_cloud_tls_configured():
         ENVIRONMENT="production",
         SECRET_KEY="a" * 40,
         MQTT_PASSWORD="secure_broker_password",
+        GATEWAY_INGEST_SECRET="prod-gateway-secret-1234",
+        ADMIN_INITIAL_PASSWORD="SecureAdminPass2026!",
         MQTT_BROKER_HOST="cluster-xyz.s1.eu.hivemq.cloud",
         MQTT_BROKER_PORT=8883,
         MQTT_USE_TLS=True,

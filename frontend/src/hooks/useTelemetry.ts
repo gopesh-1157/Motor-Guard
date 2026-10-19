@@ -18,6 +18,8 @@ export function useTelemetry() {
   const [esp32ApConnected, setEsp32ApConnected] = useState<boolean>(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
+  const staleTimeoutRef = useRef<number>(STALE_TIMEOUT_MS)
+  const offlineTimeoutRef = useRef<number>(OFFLINE_TIMEOUT_MS)
 
   // Update motor state with a new telemetry message
   const handleIncomingTelemetry = useCallback((msg: TelemetryMessage) => {
@@ -49,6 +51,7 @@ export function useTelemetry() {
       const updatedHistory = [...existingHistory, newHistoryPoint].slice(-MAX_HISTORY_POINTS)
 
       const updatedMotor: MotorState = {
+        ...existing,
         motor_id: msg.motor_id,
         device_id: msg.device_id,
         source: msg.source,
@@ -56,6 +59,10 @@ export function useTelemetry() {
         history: updatedHistory,
         lastSeen: now,
         connectionStatus: 'online',
+        thresholds: existing?.thresholds,
+        effective_thresholds: existing?.effective_thresholds,
+        electrical_specs: existing?.electrical_specs,
+        mechanical_specs: existing?.mechanical_specs,
       }
 
       return {
@@ -81,11 +88,23 @@ export function useTelemetry() {
         setMotors((prev) => {
           const next = { ...prev }
           for (const rm of registeredList) {
-            if (!next[rm.motor_id]) {
+            if (next[rm.motor_id]) {
+              next[rm.motor_id] = {
+                ...next[rm.motor_id],
+                thresholds: rm.thresholds,
+                effective_thresholds: rm.effective_thresholds,
+                electrical_specs: rm.electrical_specs,
+                mechanical_specs: rm.mechanical_specs,
+              }
+            } else {
               next[rm.motor_id] = {
                 motor_id: rm.motor_id,
                 device_id: rm.assigned_device_id || 'unassigned',
                 source: 'hardware',
+                thresholds: rm.thresholds,
+                effective_thresholds: rm.effective_thresholds,
+                electrical_specs: rm.electrical_specs,
+                mechanical_specs: rm.mechanical_specs,
                 latest: {
                   schema_version: '1.0.0',
                   event_id: 'pending-registration',
@@ -98,13 +117,13 @@ export function useTelemetry() {
                   sensor_status: { temperature: 'UNAVAILABLE', current: 'UNAVAILABLE', vibration: 'UNAVAILABLE' },
                   inference: {
                     status: 'SKIPPED',
-                    health_status: 'unknown',
+                    health_status: rm.health_status || 'unknown',
                     confidence: 0,
                   },
                 },
                 history: [],
                 lastSeen: 0,
-                connectionStatus: 'offline',
+                connectionStatus: rm.operational_state === 'OFFLINE' ? 'offline' : 'online',
               }
             }
           }
@@ -123,6 +142,19 @@ export function useTelemetry() {
     async function initData() {
       try {
         await refreshMotors()
+
+        // Fetch persisted operational limits for stale & offline timeouts
+        try {
+          const sRes = await fetch('/api/v1/settings/thresholds', { headers: getAuthHeaders() })
+          if (sRes.ok) {
+            const sData = await sRes.json()
+            if (sData.stale_timeout_sec) staleTimeoutRef.current = sData.stale_timeout_sec * 1000
+            if (sData.offline_timeout_sec) offlineTimeoutRef.current = sData.offline_timeout_sec * 1000
+          }
+        } catch {
+          // Keep defaults
+        }
+
         const res = await fetch('/api/v1/telemetry/recent?limit=100', { headers: getAuthHeaders() })
         if (!res.ok) return
 
@@ -143,7 +175,7 @@ export function useTelemetry() {
     return () => {
       isMounted = false
     }
-  }, [handleIncomingTelemetry, refreshMotors])
+  }, [getAuthHeaders, handleIncomingTelemetry, refreshMotors])
 
   // WebSocket Connection Management
   const connectRef = useRef<() => void>(() => {})
@@ -154,7 +186,10 @@ export function useTelemetry() {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/telemetry`
+    const token = localStorage.getItem('motorguard_auth_token')
+    const wsUrl = token
+      ? `${protocol}//${window.location.host}/ws/telemetry?token=${encodeURIComponent(token)}`
+      : `${protocol}//${window.location.host}/ws/telemetry`
 
     try {
       const ws = new WebSocket(wsUrl)
@@ -235,9 +270,9 @@ export function useTelemetry() {
           const elapsed = now - motor.lastSeen
           let newStatus: ConnectionStatus = 'online'
 
-          if (elapsed > OFFLINE_TIMEOUT_MS) {
+          if (elapsed > offlineTimeoutRef.current) {
             newStatus = 'offline'
-          } else if (elapsed > STALE_TIMEOUT_MS) {
+          } else if (elapsed > staleTimeoutRef.current) {
             newStatus = 'stale'
           }
 
@@ -271,10 +306,13 @@ export function useTelemetry() {
             setEsp32ApConnected(true)
             handleIncomingTelemetry(telemetryData as TelemetryMessage)
 
-            // Forward to FastAPI backend for MongoDB persistence
+            // Forward to FastAPI backend for MongoDB persistence with authorization
             fetch('/api/v1/telemetry/ingest', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders(),
+              },
               body: JSON.stringify(telemetryData),
             }).catch(() => {})
           }

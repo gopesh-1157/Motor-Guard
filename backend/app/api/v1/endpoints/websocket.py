@@ -26,8 +26,8 @@ class WebSocketManager:
     def connection_count(self) -> int:
         return len(self._active_connections)
 
-    async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
+    async def connect(self, websocket: WebSocket, subprotocol: str = None) -> None:
+        await websocket.accept(subprotocol=subprotocol)
         async with self._lock:
             self._active_connections.add(websocket)
         logger.info("WebSocket client connected (%d total)", self.connection_count)

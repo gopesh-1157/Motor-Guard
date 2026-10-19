@@ -25,6 +25,7 @@ export const ReportsView: FC<ReportsViewProps> = ({ motors, alerts }) => {
   const [selectedMotorId, setSelectedMotorId] = useState<string>('ALL')
   const [severityFilter, setSeverityFilter] = useState<string>('ALL')
   const [timePeriod, setTimePeriod] = useState<string>('7d')
+  const [generatedAt] = useState(() => new Date().toLocaleString())
 
   // Filtered alerts for reports
   const filteredAlerts = useMemo(() => {
@@ -326,7 +327,7 @@ export const ReportsView: FC<ReportsViewProps> = ({ motors, alerts }) => {
             </div>
 
             <div style={{ textAlign: 'right', fontSize: '11px', color: 'var(--text-muted)' }}>
-              <div>Generated: <strong className="tabular-nums">{new Date().toLocaleString()}</strong></div>
+              <div>Generated: <strong className="tabular-nums">{generatedAt}</strong></div>
               <div>Classification: <strong>ENGINEERING SENSITIVE</strong></div>
             </div>
           </div>

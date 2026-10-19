@@ -99,6 +99,25 @@ async def get_motor_configuration(
     }
 
 
+@router.get("/{motor_id}/effective-thresholds", summary="Get effective runtime thresholds for motor")
+async def get_effective_thresholds(
+    motor_id: str,
+    current_user: UserOut = Depends(get_current_active_user),
+    motor_service: MotorService = Depends(get_motor_service),
+):
+    """Retrieve resolved effective operational thresholds following priority order."""
+    motor = await motor_service.get_motor(motor_id)
+    if not motor:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Motor '{motor_id}' not found")
+
+    eff = motor.effective_thresholds or await motor_service.get_effective_thresholds(motor_id)
+    return {
+        "motor_id": motor_id,
+        **eff,
+    }
+
+
+
 @router.patch("/{motor_id}/configuration", response_model=MotorOut, summary="Patch motor configuration")
 async def patch_motor_configuration(
     motor_id: str,

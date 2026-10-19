@@ -1,21 +1,33 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { AppShell } from './components/AppShell'
 import { OverviewView } from './components/OverviewView'
-import { AnalyticsView } from './components/AnalyticsView'
-import { ManagerView } from './components/ManagerView'
-import { AlertsView } from './components/AlertsView'
-import { TechnicianView } from './components/TechnicianView'
-import { MotorDigitalTwin3D } from './components/MotorDigitalTwin3D'
-import { DeviceNodesView } from './components/DeviceNodesView'
-import { ReportsView } from './components/ReportsView'
-import { SettingsView } from './components/SettingsView'
+import { LandingView } from './components/LandingView'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { RBACLoginModal } from './components/RBACLoginModal'
 import { MotorDetailModal } from './components/MotorDetailModal'
-import { MotorManagementView } from './components/MotorManagementView'
-import { LiveMonitoringView } from './components/LiveMonitoringView'
-import { LandingView } from './components/LandingView'
 import { useTelemetry } from './hooks/useTelemetry'
 import type { MotorState, AlertItem, NavigationTab, UserProfile } from './types'
+
+// Dynamic lazy-loaded view chunks to cut initial bundle size from 2.2 MB
+const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })))
+const MotorDigitalTwin3D = lazy(() => import('./components/MotorDigitalTwin3D').then((m) => ({ default: m.MotorDigitalTwin3D })))
+const MotorManagementView = lazy(() => import('./components/MotorManagementView').then((m) => ({ default: m.MotorManagementView })))
+const LiveMonitoringView = lazy(() => import('./components/LiveMonitoringView').then((m) => ({ default: m.LiveMonitoringView })))
+const AlertsView = lazy(() => import('./components/AlertsView').then((m) => ({ default: m.AlertsView })))
+const ManagerView = lazy(() => import('./components/ManagerView').then((m) => ({ default: m.ManagerView })))
+const TechnicianView = lazy(() => import('./components/TechnicianView').then((m) => ({ default: m.TechnicianView })))
+const DeviceNodesView = lazy(() => import('./components/DeviceNodesView').then((m) => ({ default: m.DeviceNodesView })))
+const ReportsView = lazy(() => import('./components/ReportsView').then((m) => ({ default: m.ReportsView })))
+const SettingsView = lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })))
+
+const ViewLoadingFallback = () => (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '360px', color: 'var(--text-muted)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+      <div style={{ width: '28px', height: '28px', border: '2px solid rgba(6, 182, 212, 0.2)', borderTopColor: '#06b6d4', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <span style={{ fontSize: '11px', letterSpacing: '0.08em', fontWeight: 600 }}>LOADING MOTORGUARD MODULE...</span>
+    </div>
+  </div>
+)
 
 const INITIAL_ALERTS: AlertItem[] = [
   {
@@ -105,7 +117,9 @@ export default function App() {
 
   // Expose the alert handler to the WebSocket hook via a stable ref
   const alertHandlerRef = useRef(handleIncomingAlert)
-  alertHandlerRef.current = handleIncomingAlert
+  useEffect(() => {
+    alertHandlerRef.current = handleIncomingAlert
+  }, [handleIncomingAlert])
 
   // Patch the WebSocket message handler to also process 'alert' type messages
   useEffect(() => {
@@ -130,7 +144,7 @@ export default function App() {
         const res = await fetch('/api/v1/alerts', { headers })
         if (res.ok) {
           const data = await res.json()
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             setAlerts(data)
           }
         }
@@ -372,103 +386,149 @@ export default function App() {
 
       {/* 2. MOTOR FLEET MANAGEMENT */}
       {(currentTab === 'fleet' || currentTab === 'motors') && (
-        <MotorManagementView
-          motors={motorList}
-          currentUser={currentUser}
-          onMotorRegistered={(newMotorId) => {
-            refreshMotors?.()
-            setSelectedMotorId(newMotorId)
-          }}
-          onOpenLogin={() => setIsLoginModalOpen(true)}
-        />
+        <ErrorBoundary fallbackTitle="Fleet Management Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <MotorManagementView
+              motors={motorList}
+              currentUser={currentUser}
+              onMotorRegistered={(newMotorId) => {
+                refreshMotors?.()
+                setSelectedMotorId(newMotorId)
+              }}
+              onOpenLogin={() => setIsLoginModalOpen(true)}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* 3. LIVE MONITORING STREAM */}
       {currentTab === 'live' && (
-        <LiveMonitoringView
-          motors={motorList}
-          selectedMotorId={selectedMotorId}
-          onSelectMotor={setSelectedMotorId}
-          onInspectMotorDetail={(m) => setSelectedModalMotor(m)}
-          wsConnected={wsConnected}
-        />
+        <ErrorBoundary fallbackTitle="Live Telemetry View Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <LiveMonitoringView
+              motors={motorList}
+              selectedMotorId={selectedMotorId}
+              onSelectMotor={setSelectedMotorId}
+              onInspectMotorDetail={(m) => setSelectedModalMotor(m)}
+              wsConnected={wsConnected}
+              alerts={alerts}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* 4. MOTOR ANALYTICS WORKSPACE */}
       {currentTab === 'analytics' && (
-        <AnalyticsView
-          motors={motorList}
-          selectedMotorId={selectedMotorId}
-          onSelectMotor={setSelectedMotorId}
-          alerts={alerts}
-        />
+        <ErrorBoundary fallbackTitle="Analytics View Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <AnalyticsView
+              motors={motorList}
+              selectedMotorId={selectedMotorId}
+              onSelectMotor={setSelectedMotorId}
+              alerts={alerts}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* 4.5. 3D SPATIAL DIGITAL TWIN */}
       {currentTab === 'twin' && (
-        <MotorDigitalTwin3D
-          motors={motorList}
-          selectedMotorId={selectedMotorId}
-          onSelectMotor={setSelectedMotorId}
-        />
+        <ErrorBoundary fallbackTitle="3D Digital Twin Unavailable" fallbackMessage="WebGL 3D Context could not be rendered or was lost.">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <MotorDigitalTwin3D
+              motors={motorList}
+              selectedMotorId={selectedMotorId}
+              onSelectMotor={setSelectedMotorId}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
-      {/* 5. ALERTS & EVENTS MANAGEMENT — New Command Center */}
+      {/* 5. ALERTS & EVENTS MANAGEMENT */}
       {currentTab === 'alerts' && (
-        <AlertsView
-          alerts={alerts}
-          motors={motorList}
-          onAssignAlert={handleAssignAlert}
-          onResolveAlert={handleResolveAlert}
-          currentUser={currentUser}
-          onOpenLogin={() => setIsLoginModalOpen(true)}
-          onNavigateToMotor={(motorId) => {
-            setSelectedMotorId(motorId)
-            setCurrentTab('analytics')
-          }}
-        />
+        <ErrorBoundary fallbackTitle="Alerts Center Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <AlertsView
+              alerts={alerts}
+              motors={motorList}
+              onAssignAlert={handleAssignAlert}
+              onResolveAlert={handleResolveAlert}
+              currentUser={currentUser}
+              onOpenLogin={() => setIsLoginModalOpen(true)}
+              onNavigateToMotor={(motorId) => {
+                setSelectedMotorId(motorId)
+                setCurrentTab('analytics')
+              }}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* 5b. Legacy Manager Dispatch View */}
       {currentTab === 'manager' && (
-        <ManagerView
-          alerts={alerts}
-          onAssignAlert={handleAssignAlert}
-          currentUser={currentUser}
-          onOpenLogin={() => setIsLoginModalOpen(true)}
-        />
+        <ErrorBoundary fallbackTitle="Manager Workbench Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <ManagerView
+              alerts={alerts}
+              onAssignAlert={handleAssignAlert}
+              currentUser={currentUser}
+              onOpenLogin={() => setIsLoginModalOpen(true)}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* 6. MAINTENANCE WORKBENCH */}
       {(currentTab === 'maintenance' || currentTab === 'technician') && (
-        <TechnicianView
-          alerts={alerts}
-          onResolveAlert={handleResolveAlert}
-          currentUser={currentUser}
-          onOpenLogin={() => setIsLoginModalOpen(true)}
-        />
+        <ErrorBoundary fallbackTitle="Maintenance Workbench Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <TechnicianView
+              alerts={alerts}
+              onResolveAlert={handleResolveAlert}
+              currentUser={currentUser}
+              onOpenLogin={() => setIsLoginModalOpen(true)}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* 7. ESP32 DEVICE NODES */}
       {currentTab === 'devices' && (
-        <DeviceNodesView
-          motors={motorList}
-          esp32HwConnected={stats.esp32ApConnected}
-          currentUser={currentUser}
-          onOpenLogin={() => setIsLoginModalOpen(true)}
-        />
+        <ErrorBoundary fallbackTitle="Device Nodes Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <DeviceNodesView
+              motors={motorList}
+              esp32HwConnected={stats.esp32ApConnected}
+              currentUser={currentUser}
+              onOpenLogin={() => setIsLoginModalOpen(true)}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* 8. REPORTS */}
       {currentTab === 'reports' && (
-        <ReportsView
-          motors={motorList}
-          alerts={alerts}
-        />
+        <ErrorBoundary fallbackTitle="Reports View Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <ReportsView
+              motors={motorList}
+              alerts={alerts}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       {/* 9. SETTINGS */}
-      {currentTab === 'settings' && <SettingsView />}
+      {currentTab === 'settings' && (
+        <ErrorBoundary fallbackTitle="Settings View Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <SettingsView
+              currentUser={currentUser}
+              onOpenLogin={() => setIsLoginModalOpen(true)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
 
       {/* Motor Detail Modal */}
       <MotorDetailModal

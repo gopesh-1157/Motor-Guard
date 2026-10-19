@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { FC, FormEvent } from 'react'
 import {
   Cpu,
@@ -90,9 +90,7 @@ export const DeviceNodesView: FC<DeviceNodesViewProps> = ({
   )
 
   // Load devices from backend API
-  const fetchDevices = async () => {
-    setIsLoading(true)
-    setErrorMsg(null)
+  const fetchDevices = useCallback(async () => {
     try {
       const token = localStorage.getItem('motorguard_auth_token')
       const headers: Record<string, string> = {}
@@ -106,16 +104,38 @@ export const DeviceNodesView: FC<DeviceNodesViewProps> = ({
           return
         }
       }
-
     } catch {
       // Fallback to local devices
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    fetchDevices()
+    let isMounted = true
+    const init = async () => {
+      try {
+        const token = localStorage.getItem('motorguard_auth_token')
+        const headers: Record<string, string> = {}
+        if (token) headers['Authorization'] = `Bearer ${token}`
+
+        const res = await fetch('/api/v1/devices', { headers })
+        if (res.ok && isMounted) {
+          const data = await res.json()
+          if (Array.isArray(data) && data.length > 0) {
+            setDevices(data)
+          }
+        }
+      } catch {
+        // Fallback
+      } finally {
+        if (isMounted) setIsLoading(false)
+      }
+    }
+    init()
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   const showToast = (msg: string) => {

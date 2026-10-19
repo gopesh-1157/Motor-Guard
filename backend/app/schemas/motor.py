@@ -119,14 +119,30 @@ class SensorsConfig(BaseModel):
 class HealthThresholds(BaseModel):
     temperature_warning_c: float = Field(default=45.0, ge=0.0, le=120.0)
     temperature_critical_c: float = Field(default=50.0, ge=0.0, le=120.0)
+    ambient_temp_warning_c: Optional[float] = Field(default=45.0, ge=0.0, le=120.0)
+    ambient_temp_critical_c: Optional[float] = Field(default=55.0, ge=0.0, le=120.0)
+    casing_temp_warning_c: Optional[float] = Field(default=None, ge=0.0, le=150.0)
+    casing_temp_critical_c: Optional[float] = Field(default=None, ge=0.0, le=150.0)
     current_warning_a: float = Field(default=3.0, ge=0.0, le=30.0)
     current_critical_a: float = Field(default=4.0, ge=0.0, le=30.0)
+    current_hard_limit_a: Optional[float] = Field(default=None, ge=0.0, le=40.0)
     vibration_warning_g: float = Field(default=0.5, ge=0.0, le=16.0)
     vibration_critical_g: float = Field(default=1.0, ge=0.0, le=16.0)
     device_offline_timeout_sec: int = Field(default=30, ge=5, le=3600)
     alert_persistence_sec: int = Field(default=10, ge=1, le=300)
     alert_cooldown_sec: int = Field(default=60, ge=5, le=3600)
     hysteresis_percentage: float = Field(default=5.0, ge=0.0, le=20.0)
+    startup_grace_period_sec: float = Field(default=0.5, ge=0.0, le=10.0)
+    calibration_status: Literal[
+        "manufacturer_verified", "measured_calibrated", "measured_and_calibrated", "provisional", "unconfigured"
+    ] = Field(
+        default="provisional",
+        description="Threshold status: manufacturer_verified, measured_calibrated, provisional, or unconfigured",
+    )
+    provenance: str = Field(
+        default="Provisional RS-775 baseline limits (uncalibrated)",
+        description="Source of threshold values (e.g. datasheet, bench test run, provisional)",
+    )
 
     @model_validator(mode="after")
     def validate_threshold_order(self):
@@ -142,6 +158,14 @@ class HealthThresholds(BaseModel):
         if self.vibration_warning_g >= self.vibration_critical_g:
             raise ValueError(
                 f"Vibration warning ({self.vibration_warning_g}g) must be less than critical ({self.vibration_critical_g}g)"
+            )
+        if (
+            self.casing_temp_warning_c is not None
+            and self.casing_temp_critical_c is not None
+            and self.casing_temp_warning_c >= self.casing_temp_critical_c
+        ):
+            raise ValueError(
+                f"Casing temperature warning ({self.casing_temp_warning_c}°C) must be less than critical ({self.casing_temp_critical_c}°C)"
             )
         return self
 
@@ -221,6 +245,7 @@ class MotorOut(BaseModel):
     configuration_version: int = 1
     health_status: Literal["healthy", "warning", "critical", "unknown"] = "unknown"
     operational_state: Literal["RUNNING", "IDLE", "ALARM", "OFFLINE"] = "OFFLINE"
+    effective_thresholds: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
     created_by: Optional[str] = None

@@ -20,7 +20,7 @@ export type NavigationTab =
 
 export type UserRole = 'Admin' | 'Manager' | 'Technician' | 'Operator'
 
-export type ChartMetric = 'temperature' | 'current' | 'vibration'
+export type ChartMetric = 'temperature' | 'current' | 'vibration' | 'fft_spectrum'
 export type ChartType = 'line' | 'area' | 'step' | 'bar' | 'scatter' | 'histogram' | 'threshold'
 export type TimeRangeOption = '15m' | '1h' | '6h' | '24h' | '7d' | 'all'
 
@@ -98,12 +98,33 @@ export interface HealthThresholds {
   temperature_critical_c: number
   current_warning_a: number
   current_critical_a: number
+  current_hard_limit_a?: number | null
   vibration_warning_g: number
   vibration_critical_g: number
+  casing_temp_warning_c?: number | null
+  casing_temp_critical_c?: number | null
   device_offline_timeout_sec: number
   alert_persistence_sec: number
   alert_cooldown_sec: number
   hysteresis_percentage: number
+  startup_grace_period_sec?: number
+  calibration_status?: 'manufacturer_verified' | 'measured_calibrated' | 'measured_and_calibrated' | 'provisional' | 'unconfigured'
+  provenance?: string
+}
+
+export interface EffectiveThresholds {
+  current_warning_a: number
+  current_critical_a: number
+  current_hard_limit_a?: number | null
+  temperature_warning_c: number
+  temperature_critical_c: number
+  vibration_warning_g: number
+  vibration_critical_g: number
+  peak_vibration_g?: number
+  stale_timeout_sec?: number
+  offline_timeout_sec?: number
+  calibration_status?: string
+  provenance?: string
 }
 
 export interface EdgeImpulseConfig {
@@ -133,6 +154,7 @@ export interface RegisteredMotor {
   mechanical_specs?: MechanicalSpecs | null
   sensors_config: SensorsConfig
   thresholds: HealthThresholds
+  effective_thresholds?: EffectiveThresholds
   edge_impulse_config: EdgeImpulseConfig
   assigned_device_id?: string | null
   configuration_version: number
@@ -171,14 +193,20 @@ export interface AuditEvent {
 
 export interface SensorsPayload {
   temperature_c?: number | null
+  ambient_temperature_c?: number | null
+  case_temperature_c?: number | null
   current_a?: number | null
+  current_peak_a?: number | null
   vibration_g_rms?: number | null
+  vibration_g_peak?: number | null
 }
 
 export interface SensorStatusPayload {
   temperature: SensorState
   current: SensorState
   vibration: SensorState
+  current_calibrated?: boolean | null
+  current_zero_offset_v?: number | null
 }
 
 export interface InferenceProbabilities {
@@ -193,7 +221,18 @@ export interface InferencePayload {
   confidence: number
   probabilities?: InferenceProbabilities | null
   model_version?: string | null
+  input_feature_version?: string | null
   inference_time_ms?: number | null
+}
+
+export interface SafetyPayload {
+  status: 'SAFE' | 'WARNING' | 'CRITICAL' | 'UNKNOWN'
+  current_state: string
+  vibration_state: string
+  temperature_state: string
+  active_reasons: string[]
+  configuration_version: number
+  calibration_status: 'manufacturer_verified' | 'measured_and_calibrated' | 'provisional' | 'unconfigured'
 }
 
 export interface DiagnosticsPayload {
@@ -213,6 +252,7 @@ export interface TelemetryMessage {
   sensors: SensorsPayload
   sensor_status: SensorStatusPayload
   inference: InferencePayload
+  safety?: SafetyPayload | null
   diagnostics?: DiagnosticsPayload | null
 }
 
@@ -232,6 +272,10 @@ export interface MotorState {
   history: MotorHistoryPoint[]
   lastSeen: number // unix epoch ms
   connectionStatus: ConnectionStatus
+  electrical_specs?: ElectricalSpecs
+  mechanical_specs?: MechanicalSpecs
+  thresholds?: HealthThresholds
+  effective_thresholds?: EffectiveThresholds
 }
 
 export interface DashboardStats {
@@ -309,5 +353,45 @@ export interface WorkOrderItem {
   resolution_notes?: string | null
   rejection_reason?: string | null
   updated_at: string
+}
+
+export type ISO10816Zone = 'Zone A (Good)' | 'Zone B (Acceptable)' | 'Zone C (Alert)' | 'Zone D (Critical)'
+
+export interface SpectralPeak {
+  frequency_hz: number
+  amplitude_g: number
+  amplitude_mms: number
+  label: string
+  fault_type?: '1x_RPM' | '2x_Harmonic' | '3x_Harmonic' | 'BPFO' | 'BPFI' | 'BSF' | 'FTF' | 'Noise'
+  severity: 'nominal' | 'warning' | 'critical'
+}
+
+export interface FFTSpectrumData {
+  frequencies: number[]
+  amplitudes_g: number[]
+  amplitudes_mms: number[]
+  peaks: SpectralPeak[]
+  rpm: number
+  running_frequency_hz: number
+  iso_zone: ISO10816Zone
+  iso_velocity_mms_rms: number
+  iso_rating_status: 'healthy' | 'warning' | 'critical'
+  bearing_frequencies: {
+    bpfo_hz: number
+    bpfi_hz: number
+    bsf_hz: number
+    ftf_hz: number
+  }
+}
+
+export interface RULPrognostics {
+  estimated_rul_hours: number
+  confidence: number
+  degradation_percentage: number
+  health_index: number // 0 to 100
+  failure_risk_level: 'LOW' | 'MODERATE' | 'ELEVATED' | 'CRITICAL'
+  dominant_stress_factor: 'THERMAL' | 'MECHANICAL_VIBRATION' | 'ELECTRICAL_OVERLOAD' | 'NORMAL_WEAR'
+  projected_days_to_maintenance: number
+  projected_trend: { day: number; projected_vibration_g: number; threshold: number }[]
 }
 

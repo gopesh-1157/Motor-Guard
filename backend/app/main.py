@@ -1,7 +1,8 @@
 import asyncio
 import logging
+from typing import Optional
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, status
 
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import settings
@@ -63,6 +64,11 @@ async def _ingest_and_broadcast(payload: dict) -> bool:
                     await ws_manager.broadcast({
                         "type": "alert",
                         "data": alert.model_dump(mode="json"),
+                    })
+                for resolved in alert_service.consume_auto_resolved_alerts():
+                    await ws_manager.broadcast({
+                        "type": "alert",
+                        "data": resolved.model_dump(mode="json"),
                     })
             except Exception as e:
                 logger.error("Error evaluating alert rules: %s", e)
@@ -234,12 +240,55 @@ async def root(request: Request):
 
 
 @app.websocket("/ws/telemetry")
-async def websocket_telemetry(websocket: WebSocket):
-    """WebSocket endpoint for live telemetry streaming to dashboard clients."""
-    await ws_manager.connect(websocket)
+async def websocket_telemetry(websocket: WebSocket, token: Optional[str] = None):
+    """
+    WebSocket endpoint for live telemetry streaming.
+    
+    Security & Authentication:
+    1. Subprotocol auth (Sec-WebSocket-Protocol: access_token, <token>) to prevent URL query logging.
+    2. Header auth (Authorization: Bearer <token>) for API/test clients.
+    3. Query parameter (?token=<token>) as backward-compatible fallback.
+    4. Enforces cryptographic JWT verification AND active user status in the database.
+    """
+    auth_token = None
+    selected_subprotocol = None
+
+    # Check Sec-WebSocket-Protocol (e.g. ['access_token', '<token>'])
+    ws_protocol = websocket.headers.get("sec-websocket-protocol")
+    if ws_protocol:
+        parts = [p.strip() for p in ws_protocol.split(",") if p.strip()]
+        if len(parts) >= 2 and parts[0].lower() in ("access_token", "bearer", "jwt"):
+            selected_subprotocol = parts[0]
+            auth_token = parts[1]
+        elif len(parts) == 1 and "." in parts[0]:
+            # Token passed directly as protocol
+            auth_token = parts[0]
+
+    # Check Authorization header
+    if not auth_token:
+        auth_header = websocket.headers.get("authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            auth_token = auth_header[7:].strip()
+
+    # Query parameter fallback
+    if not auth_token:
+        auth_token = token or websocket.query_params.get("token")
+
+    if not auth_token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing authentication token")
+        return
+
+    from backend.app.core.auth import verify_token_user
+    user = await verify_token_user(auth_token, allowed_roles=["Admin", "Manager", "Technician", "Operator"])
+    if not user or not user.is_active:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid or inactive user credentials")
+        return
+
+    await ws_manager.connect(websocket, subprotocol=selected_subprotocol)
     try:
         while True:
             # Keep connection alive; client can send pings/messages
             await websocket.receive_text()
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket)
+
