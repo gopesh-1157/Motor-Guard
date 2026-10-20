@@ -64,7 +64,7 @@ async def get_ready(response: Response, strict: bool = False):
     if all_healthy:
         overall_status = "ok"
     else:
-        overall_status = "degraded" if not strict and settings.ENVIRONMENT == "development" else "unavailable"
+        overall_status = "degraded" if not strict and settings.ENVIRONMENT in ("development", "test") else "unavailable"
         if strict or overall_status == "unavailable":
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 

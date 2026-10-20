@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, status
@@ -34,25 +35,46 @@ motor_service: MotorService | None = None
 
 async def _ingest_and_broadcast(payload: dict) -> bool:
     """Ingest telemetry into MongoDB, evaluate safety rules, and broadcast."""
-    global ingestion_service, alert_service, device_service
+    global ingestion_service, alert_service, device_service, motor_service
     if ingestion_service is None:
         return False
 
-    # Validate device registry and motor assignment
+    # Do not let delayed or malformed device timestamps refresh registry liveness.
+    # The ingestion service will stamp the authoritative receipt timestamp.
+    is_liveness = ingestion_service._is_liveness_eligible(payload.get("timestamp"), datetime.now(timezone.utc))
+    if not is_liveness:
+        payload["liveness_eligible"] = False
+
+    device_id = payload.get("device_id")
+    motor_id = payload.get("motor_id")
+
+    # Validate device registry and motor assignment (always enforced)
     if device_service is not None:
-        device_id = payload.get("device_id")
-        motor_id = payload.get("motor_id")
-        if device_id and motor_id:
-            authorized = await device_service.record_heartbeat_or_telemetry(device_id, motor_id)
-            if not authorized:
-                logger.warning(
-                    "Dropping telemetry from mismatched/unauthorized assignment: device=%s motor=%s",
-                    device_id, motor_id,
-                )
-                return False
+        if not device_id or not motor_id:
+            logger.warning("Dropping telemetry missing device_id or motor_id")
+            return False
+
+        authorized = await device_service.record_heartbeat_or_telemetry(
+            device_id, motor_id, update_liveness=is_liveness
+        )
+        if not authorized:
+            logger.warning(
+                "Dropping telemetry from mismatched/unauthorized assignment: device=%s motor=%s",
+                device_id, motor_id,
+            )
+            return False
+
+    # Enrich site_id from motor registry if not already present in telemetry packet
+    if motor_service is not None and motor_id and not payload.get("site_id"):
+        try:
+            m = await motor_service.get_motor(motor_id)
+            if m and getattr(m, "site_id", None):
+                payload["site_id"] = m.site_id
+        except Exception:
+            pass
 
     inserted = await ingestion_service.ingest(payload)
-    if inserted:
+    if inserted and payload.get("liveness_eligible", True):
         # Broadcast telemetry to live dashboard
         await ws_manager.broadcast({"type": "telemetry", "data": payload})
 
@@ -61,14 +83,20 @@ async def _ingest_and_broadcast(payload: dict) -> bool:
             try:
                 alerts = await alert_service.evaluate_telemetry_for_alerts(payload)
                 for alert in alerts:
+                    alert_dict = alert.model_dump(mode="json")
+                    if payload.get("site_id"):
+                        alert_dict["site_id"] = payload.get("site_id")
                     await ws_manager.broadcast({
                         "type": "alert",
-                        "data": alert.model_dump(mode="json"),
+                        "data": alert_dict,
                     })
                 for resolved in alert_service.consume_auto_resolved_alerts():
+                    resolved_dict = resolved.model_dump(mode="json")
+                    if payload.get("site_id"):
+                        resolved_dict["site_id"] = payload.get("site_id")
                     await ws_manager.broadcast({
                         "type": "alert",
-                        "data": resolved.model_dump(mode="json"),
+                        "data": resolved_dict,
                     })
             except Exception as e:
                 logger.error("Error evaluating alert rules: %s", e)
@@ -118,12 +146,15 @@ async def lifespan(app: FastAPI):
         # 3. Wire MQTT subscriber -> ingestion + broadcast pipeline
         mqtt_subscriber.set_telemetry_callback(_ingest_and_broadcast)
 
-    # 4. Start MQTT subscriber
-    loop = asyncio.get_event_loop()
-    await mqtt_subscriber.start(loop=loop)
+    # 4. Start MQTT subscriber (skipped during hermetic testing)
+    if settings.ENVIRONMENT != "test":
+        loop = asyncio.get_event_loop()
+        await mqtt_subscriber.start(loop=loop)
 
-    # 5. Background ESP32 SoftAP auto-bridge (polls http://192.168.4.1/api/telemetry)
+    # 5. Background ESP32 SoftAP auto-bridge (disabled by default; bench testing only)
     async def _poll_esp32_ap_loop():
+        if settings.ENVIRONMENT == "test":
+            return
         import httpx
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
@@ -139,14 +170,18 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
-    poller_task = asyncio.create_task(_poll_esp32_ap_loop())
+    poller_task = None
+    if getattr(settings, "ENABLE_ESP32_SOFTAP_POLLER", False) and settings.ENVIRONMENT != "test":
+        poller_task = asyncio.create_task(_poll_esp32_ap_loop())
 
     yield
 
     # Shutdown tasks
     logger.info("Shutting down %s...", settings.APP_NAME)
-    poller_task.cancel()
-    await mqtt_subscriber.stop()
+    if poller_task and not poller_task.done():
+        poller_task.cancel()
+    if settings.ENVIRONMENT != "test":
+        await mqtt_subscriber.stop()
     await db_manager.close_database_connection()
     ingestion_service = None
     alert_service = None
@@ -253,6 +288,17 @@ async def websocket_telemetry(websocket: WebSocket, token: Optional[str] = None)
     auth_token = None
     selected_subprotocol = None
 
+    # Validate Origin header if present (browser clients)
+    origin = websocket.headers.get("origin")
+    if origin:
+        allowed = [o.rstrip("/") for o in settings.cors_origins_list]
+        clean_origin = origin.rstrip("/")
+        is_allowed = clean_origin in allowed or (settings.ENVIRONMENT != "production" and "*" in allowed)
+        if not is_allowed:
+            logger.warning("Rejected WebSocket connection from unauthorized origin: %s", origin)
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized origin")
+            return
+
     # Check Sec-WebSocket-Protocol (e.g. ['access_token', '<token>'])
     ws_protocol = websocket.headers.get("sec-websocket-protocol")
     if ws_protocol:
@@ -284,7 +330,7 @@ async def websocket_telemetry(websocket: WebSocket, token: Optional[str] = None)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid or inactive user credentials")
         return
 
-    await ws_manager.connect(websocket, subprotocol=selected_subprotocol)
+    await ws_manager.connect(websocket, subprotocol=selected_subprotocol, user=user)
     try:
         while True:
             # Keep connection alive; client can send pings/messages

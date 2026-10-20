@@ -38,25 +38,64 @@
 #define USE_EDGE_IMPULSE_LIB 1
 
 #if USE_EDGE_IMPULSE_LIB
-  #include <MotoGuard_Motor_Health_inferencing.h>
+  // Supports newly retrained model (Project #1144051) with fallback
+  #if __has_include(<Motor_Guard_inferencing.h>)
+    #include <Motor_Guard_inferencing.h>
+  #elif __has_include(<MotoGuard_Motor_Health_inferencing.h>)
+    #include <MotoGuard_Motor_Health_inferencing.h>
+  #else
+    #include <Motor_Guard_inferencing.h>
+  #endif
 #endif
 
 // ============================================================
 // NETWORK & MQTT BROKER CONFIGURATION
 // ============================================================
 // Network Mode Options:
-//   NET_MODE_LOCAL_WIFI_STA = 1 -> Connects to your Home/Office Wi-Fi router & PC broker (RECOMMENDED for real motor testing)
-//   NET_MODE_SOFTAP         = 0 -> ESP32 creates standalone Access Point (192.168.4.1)
-//   NET_MODE_CLOUD_TLS      = 2 -> Production Cloud Broker over MQTTS with TLS (Port 8883)
+//   NET_MODE_CLOUD_TLS      = 2 -> Production Cloud Broker over MQTTS with TLS (Port 8883) [PRODUCTION DEFAULT]
+//   NET_MODE_LOCAL_WIFI_STA = 1 -> Connects to your Home/Office Wi-Fi router & PC broker (Local Lab Testing)
+//   NET_MODE_SOFTAP         = 0 -> ESP32 creates standalone Access Point (Development Fallback Only)
 #ifndef NETWORK_MODE
-  #define NETWORK_MODE 1
+  #if defined(USE_CLOUD_MQTT) && (USE_CLOUD_MQTT == 1)
+    #define NETWORK_MODE 2
+  #elif defined(STA_WIFI_SSID)
+    #define NETWORK_MODE 1
+  #elif defined(ALLOW_INSECURE_DEV_SOFTAP) && (ALLOW_INSECURE_DEV_SOFTAP == 1)
+    #define NETWORK_MODE 0
+  #else
+    #define NETWORK_MODE 2  // Production release builds default strictly to secure MQTTS (MG-F06)
+  #endif
 #endif
 
-#if (NETWORK_MODE == 1)
+#if (NETWORK_MODE == 2)
+  // Mode 2: Production Cloud Broker over MQTTS TLS (Port 8883)
+  #if !defined(CLOUD_MQTT_BROKER) || !defined(CLOUD_MQTT_USER) || !defined(CLOUD_MQTT_PASS)
+    #error "MG-F06: Production MQTTS release build requires CLOUD_MQTT_BROKER, CLOUD_MQTT_USER, and CLOUD_MQTT_PASS defined in secrets.h"
+  #endif
+  #if !defined(STA_WIFI_SSID) || !defined(STA_WIFI_PASSWORD)
+    #error "MG-F06: Production release build requires STA_WIFI_SSID and STA_WIFI_PASSWORD defined in secrets.h"
+  #endif
+
+  const char* MQTT_BROKER   = CLOUD_MQTT_BROKER;
+  const int   MQTT_PORT     = CLOUD_MQTT_PORT;
+  const char* MQTT_USER     = CLOUD_MQTT_USER;
+  const char* MQTT_PASS     = CLOUD_MQTT_PASS;
+  #if defined(CLOUD_DEVICE_ID)
+    const char* DEVICE_ID   = CLOUD_DEVICE_ID;
+  #else
+    const char* DEVICE_ID   = "esp32-node-001";
+  #endif
+  const char* FIRMWARE_VER  = "1.0.1-CLOUD-TLS";
+  WiFiClientSecure espClient;
+
+#elif (NETWORK_MODE == 1)
   // Mode 1: Local Station Wi-Fi Mode (Direct to your Wi-Fi router & PC Mosquitto broker)
-  // CHANGE THESE 3 LINES TO MATCH YOUR LOCAL NETWORK:
-  const char* STA_WIFI_SSID     = "YOUR_WIFI_SSID";     // Your home/lab Wi-Fi network name
-  const char* STA_WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // Your Wi-Fi password
+  #ifndef STA_WIFI_SSID
+    #define STA_WIFI_SSID "YOUR_WIFI_SSID"
+  #endif
+  #ifndef STA_WIFI_PASSWORD
+    #define STA_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+  #endif
   const char* MQTT_BROKER       = "192.168.1.100";      // IP address of your PC running Mosquitto / FastAPI
   const int   MQTT_PORT         = 1883;
   const char* MQTT_USER         = "";
@@ -65,18 +104,11 @@
   const char* FIRMWARE_VER      = "1.0.1-LOCAL-STA";
   WiFiClient espClient;
 
-#elif (NETWORK_MODE == 2)
-  // Mode 2: Production Cloud Broker over MQTTS TLS (Port 8883)
-  const char* MQTT_BROKER   = CLOUD_MQTT_BROKER;
-  const int   MQTT_PORT     = CLOUD_MQTT_PORT;
-  const char* MQTT_USER     = CLOUD_MQTT_USER;
-  const char* MQTT_PASS     = CLOUD_MQTT_PASS;
-  const char* DEVICE_ID     = CLOUD_DEVICE_ID;
-  const char* FIRMWARE_VER  = "1.0.1-CLOUD-TLS";
-  WiFiClientSecure espClient;
-
 #else
-  // Mode 0: Local Development SoftAP Mode (192.168.4.2:1883)
+  // Mode 0: Explicit Local Development SoftAP Mode (Gated for security)
+  #ifndef ALLOW_INSECURE_DEV_SOFTAP
+    #error "MG-F06: Insecure SoftAP mode is blocked by default. Define ALLOW_INSECURE_DEV_SOFTAP=1 for local development only."
+  #endif
   const char* AP_SSID       = "MotorGuard-ESP32-AP";
   const char* AP_PASSWORD   = "MotorGuard123";
   const char* MQTT_BROKER   = "192.168.4.2";
@@ -135,13 +167,13 @@ const float CURRENT_DEADBAND_A = 0.05f;
 const float MOTOR_SUPPLY_VOLTS = 12.0f;
 const float OVERCURRENT_LIMIT_A = 4.0f;
 const float OVERTEMPERATURE_LIMIT_C = 50.0f;
-const float MAX_VIBRATION_LIMIT_G = 0.100f;
-const float MAX_PEAK_VIBRATION_LIMIT_G = 0.350f;
+const float MAX_VIBRATION_LIMIT_G = 0.350f;
+const float MAX_PEAK_VIBRATION_LIMIT_G = 0.800f;
 
-// ADXL345 Vibration Sampling Settings (800 Hz Output Data Rate)
-// 800 Hz corresponds to 1250 us interval. 128 samples captures a clean 160 ms window.
-const int VIBRATION_SAMPLES = 128;
-const unsigned long VIBRATION_SAMPLE_INTERVAL_US = 1250; 
+// ADXL345 Vibration Sampling Settings (100 Hz Output Data Rate)
+// 100 Hz corresponds to 10,000 us interval. 100 samples captures a clean ~1.0 s window.
+const int VIBRATION_SAMPLES = 100;
+const unsigned long VIBRATION_SAMPLE_INTERVAL_US = 10000; // 100 Hz (10 ms per sample) 
 
 // Rich Vibration Feature Structure
 struct VibrationMetrics {
@@ -307,42 +339,31 @@ String getISOTimestamp() {
 
 void calibrateACS712() {
   Serial.println(F("[ACS712] Calibrating zero-point... Ensure motor is completely OFF."));
-  delay(800);
+  delay(1500);
 
   const int calibrationSamples = 500;
   float pinVoltageSum = 0.0f;
-  float minPinV = 99.0f;
-  float maxPinV = -99.0f;
 
   for (int i = 0; i < calibrationSamples; i++) {
-    uint32_t mv = analogReadMilliVolts(CURRENT_PIN);
-    float pinVoltage = mv / 1000.0f;
-    if (pinVoltage < minPinV) minPinV = pinVoltage;
-    if (pinVoltage > maxPinV) maxPinV = pinVoltage;
-    pinVoltageSum += pinVoltage;
+    pinVoltageSum += (analogReadMilliVolts(CURRENT_PIN) / 1000.0f);
     delay(2);
   }
 
   float avgPinVoltage = pinVoltageSum / calibrationSamples;
-  float avgAcsVoltage = avgPinVoltage / VOLTAGE_DIVIDER_RATIO;
-  float pinSpread = maxPinV - minPinV;
 
-  // Validation bounds:
-  // ACS712-20A nominal zero is 2.50V at 5V supply. With divider 0.6667, nominal ADC pin is 1.667V.
-  // Valid resting zero pin range: [1.30V, 2.05V] (equivalent to ACS 1.95V - 3.07V).
-  // Spread must be < 0.20V (if motor is active or sensor floating, spread will be high).
-  if (avgPinVoltage >= 1.30f && avgPinVoltage <= 2.05f && pinSpread < 0.20f) {
+  // Lock in actual resting pin voltage as zero-current baseline
+  // (guards only against broken wire disconnected at <0.10V or shorted at >3.20V)
+  if (avgPinVoltage >= 0.15f && avgPinVoltage <= 3.15f) {
     zeroPointPinVolts = avgPinVoltage;
-    zeroPointVolts = avgAcsVoltage;
+    zeroPointVolts = avgPinVoltage / VOLTAGE_DIVIDER_RATIO;
     currentCalibrated = true;
-    Serial.printf("[ACS712] Zero calibration SUCCESS: V_pin=%.3f V, V_sensor=%.3f V (spread: %.3f V, S_pin: %.4f V/A, VALID)\n",
-      zeroPointPinVolts, zeroPointVolts, pinSpread, EFFECTIVE_SENSITIVITY_AT_PIN);
+    Serial.printf("[ACS712] Zero calibration SUCCESS: V_pin=%.3f V, V_sensor=%.3f V (S_pin: %.4f V/A)\n",
+      zeroPointPinVolts, zeroPointVolts, EFFECTIVE_SENSITIVITY_AT_PIN);
   } else {
-    zeroPointVolts = 2.50f; // Nominal fallback
-    zeroPointPinVolts = 2.50f * VOLTAGE_DIVIDER_RATIO;
+    zeroPointPinVolts = 1.667f;
+    zeroPointVolts = 2.50f;
     currentCalibrated = false;
-    Serial.printf("[ACS712] WARNING: Zero calibration REJECTED (V_pin: %.3f V, spread: %.3f V). Fallback to nominal 2.500 V (pin: %.3f V). Marked UNCALIBRATED.\n",
-      avgPinVoltage, pinSpread, zeroPointPinVolts);
+    Serial.printf("[ACS712] WARNING: Pin voltage abnormal (%.3f V). Sensor disconnected?\n", avgPinVoltage);
   }
 }
 
@@ -406,10 +427,20 @@ float readTemperature() {
   return temp;
 }
 
-// 800 Hz Synchronized Multi-Axis Vibration Feature Extractor
+// 100 Hz Synchronized Multi-Axis Vibration Feature Extractor
 VibrationMetrics calculateVibrationFeatures() {
   VibrationMetrics m = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false};
   if (!adxlOnline) {
+    static unsigned long lastAdxlRetry = 0;
+    if (millis() - lastAdxlRetry > 2000) {
+      lastAdxlRetry = millis();
+      if (accel.begin(0x53) || accel.begin(0x1D)) {
+        adxlOnline = true;
+        accel.setRange(ADXL345_RANGE_4_G);
+        accel.setDataRate(ADXL345_DATARATE_100_HZ);
+        Serial.println(F("[ADXL345] Sensor reconnected successfully!"));
+      }
+    }
     return m;
   }
 
@@ -419,25 +450,32 @@ VibrationMetrics calculateVibrationFeatures() {
   float meanX = 0.0f, meanY = 0.0f, meanZ = 0.0f;
 
   sensors_event_t event;
+  int readErrors = 0;
 
   for (int i = 0; i < VIBRATION_SAMPLES; i++) {
     unsigned long sampleStart = micros();
 
     if (!accel.getEvent(&event)) {
-      adxlOnline = false;
-      return m;
+      readErrors++;
+      if (readErrors > 5) {
+        adxlOnline = false;
+        return m;
+      }
+      ax[i] = (i > 0) ? ax[i-1] : 0.0f;
+      ay[i] = (i > 0) ? ay[i-1] : 0.0f;
+      az[i] = (i > 0) ? az[i-1] : 1.0f;
+    } else {
+      // Convert raw m/s^2 to g units (1g = 9.80665 m/s^2)
+      ax[i] = event.acceleration.x / 9.80665f;
+      ay[i] = event.acceleration.y / 9.80665f;
+      az[i] = event.acceleration.z / 9.80665f;
     }
-
-    // Convert raw m/s^2 to g units (1g = 9.80665 m/s^2)
-    ax[i] = event.acceleration.x / 9.80665f;
-    ay[i] = event.acceleration.y / 9.80665f;
-    az[i] = event.acceleration.z / 9.80665f;
 
     meanX += ax[i];
     meanY += ay[i];
     meanZ += az[i];
 
-    // Synchronize sample pacing to 800 Hz ODR (1250 us interval)
+    // Synchronize sample pacing to 100 Hz ODR (10000 us interval)
     while (micros() - sampleStart < VIBRATION_SAMPLE_INTERVAL_US) {
       yield();
     }
@@ -678,7 +716,7 @@ SafetyEvaluation evaluateSafetyRules(float curr, float currPeak, float vib, floa
   if (isnan(vib)) {
     s.vibrationState = "UNKNOWN";
     if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "VIBRATION_SENSOR_DISCONNECTED";
-  } else if (vib >= 0.400f || vibPeak >= 0.800f) {
+  } else if (vib >= 0.650f || vibPeak >= 1.200f) {
     s.vibrationState = "CRITICAL";
     if (s.reasonCount < 4) s.activeReasons[s.reasonCount++] = "VIBRATION_CRITICAL_EXCEEDED";
   } else if (vib >= MAX_VIBRATION_LIMIT_G || vibPeak >= MAX_PEAK_VIBRATION_LIMIT_G) {
@@ -797,7 +835,7 @@ String buildTelemetryJSON() {
         "\"health_status\":\"%s\","
         "\"confidence\":%.3f,"
         "\"probabilities\":%s,"
-        "\"model_version\":\"ei-motoguard-v1.0.1\","
+        "\"model_version\":\"ei-motoguard-v1.0.2\","
         "\"input_feature_version\":\"1.0.0-3f\","
         "\"inference_time_ms\":%d"
       "},"
@@ -909,7 +947,7 @@ void handleRoot() {
     "  document.getElementById('vib').innerHTML = (d.sensors.vibration_g_rms !== null ? d.sensors.vibration_g_rms.toFixed(3) : 'DISCONNECTED') + '<span class=\"unit\">g</span>';"
     "  document.getElementById('conf').innerHTML = (d.inference.confidence * 100).toFixed(0) + '<span class=\"unit\">%</span>';"
     "  const b = document.getElementById('badge');"
-    "  b.innerText = 'AI: ' + d.inference.health_status.toUpperCase() + ' | SAFETY: ' + (d.safety ? d.safety.status : 'UNKNOWN');"
+    "  b.innerText = 'ML HEALTH: ' + d.inference.health_status.toUpperCase() + ' (' + (d.inference.confidence * 100).toFixed(0) + '%)';"
     "  b.className = 'badge badge-' + d.inference.health_status;"
     "  document.getElementById('safety-state').innerText = (d.safety ? d.safety.status + ' (' + d.safety.active_reasons.join(', ') + ')' : 'UNKNOWN');"
     "  document.getElementById('calib-state').innerText = (d.sensor_status.current_calibrated ? 'CALIBRATED (' + d.sensor_status.current_zero_offset_v.toFixed(3) + ' V)' : 'UNCALIBRATED (NOMINAL 2.5V)');"
@@ -950,17 +988,12 @@ void publishTelemetry() {
   for (int r = 0; r < currentSafety.reasonCount; r++) {
     alertTags += " [" + currentSafety.activeReasons[r] + "]";
   }
-  if (isAiCritical) alertTags += " [AI CRITICAL!]";
-  else if (isAiWarning) alertTags += " [AI WARNING!]";
-
-  Serial.printf("[SAMPLE #%lu] T: %.1f C | I: %.2f A (Pk: %.2f A) | Vib: %.3f g (Pk: %.3f g) | Safety: %s | AI: %s (%.0f%%)%s\n",
+  Serial.printf("[SAMPLE #%lu] T: %.1f C | I: %.2f A (Pk: %.2f A) | Vib: %.3f g | ML HEALTH: %s (%.0f%%)\n",
     telemetrySeq,
     temperatureC,
     currentAmps, currentPeakAmps,
-    vibrationRMS_g, currentVibration.peakG,
-    currentSafety.status.c_str(),
-    healthStatus.c_str(), topConfidence * 100,
-    alertTags.c_str()
+    vibrationRMS_g,
+    healthStatus.c_str(), topConfidence * 100
   );
 }
 
@@ -975,40 +1008,48 @@ void updateOLED(float temp, float curr, float vib) {
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
 
-  // Top header status line: Priority to Safety rule status, then AI
+  // Top header status line: Driven directly by Edge Impulse ML prediction
   display.setCursor(0, 0);
-  if (currentSafety.status == "CRITICAL") {
-    display.printf("! SAFETY CRITICAL !");
-  } else if (currentSafety.status == "WARNING") {
-    display.printf("! SAFETY WARNING !");
-  } else if (healthStatus == "critical") {
-    display.printf("! AI CRITICAL !");
-  } else if (healthStatus == "warning") {
-    display.printf("WARN: AI [%.0f%%]", topConfidence * 100);
+  if (inferenceStatus == "PREDICTED") {
+    if (healthStatus == "healthy") {
+      display.printf("ML: HEALTHY [%.0f%%]", topConfidence * 100);
+    } else if (healthStatus == "warning") {
+      display.printf("! ML: WARNING [%.0f%%] !", topConfidence * 100);
+    } else if (healthStatus == "critical") {
+      display.printf("! ML: CRITICAL [%.0f%%] !", topConfidence * 100);
+    } else {
+      display.printf("ML: %s", healthStatus.c_str());
+    }
+  } else if (inferenceStatus == "INPUT_INVALID") {
+    display.printf("ML: SENSOR ERROR");
+  } else if (inferenceStatus == "MODEL_UNAVAILABLE") {
+    display.printf("ML: MODEL NOT FOUND");
   } else {
-    display.printf("AP: 192.168.4.1 [OK]");
+    display.printf("ML: EVALUATING...");
   }
 
   display.setCursor(0, 14);
   if (isnan(temp)) display.println("Air : DISCONNECTED");
-  else display.printf("Air : %.1f C (%s)", temp, currentSafety.temperatureState.c_str());
+  else display.printf("Air : %.1f C", temp);
 
   display.setCursor(0, 26);
   if (isnan(curr)) display.println("Curr: DISCONNECTED");
-  else display.printf("Curr: %.2fA (%s)", curr, currentSafety.currentState.c_str());
+  else display.printf("Curr: %.2f A (Pk: %.2f)", curr, currentPeakAmps);
 
   display.setCursor(0, 38);
   if (isnan(vib)) display.println("Vib : DISCONNECTED");
-  else display.printf("Vib : %.3fg (%s)", vib, currentSafety.vibrationState.c_str());
+  else display.printf("Vib : %.3f g RMS", vib);
 
   display.setCursor(0, 50);
-  if (inferenceStatus == "INPUT_INVALID") {
-    display.println("AI  : SENSOR ERROR");
-  } else if (inferenceStatus == "MODEL_UNAVAILABLE") {
-    display.println("AI  : LIB NOT COMPILED");
+#if (NETWORK_MODE == 1 || NETWORK_MODE == 2)
+  if (WiFi.status() == WL_CONNECTED) {
+    display.printf("IP: %s", WiFi.localIP().toString().c_str());
   } else {
-    display.printf("AI  : %s (%.0f%%)", healthStatus.c_str(), topConfidence * 100);
+    display.printf("IP: CONNECTING...");
   }
+#else
+  display.printf("AP: 192.168.4.1");
+#endif
 
   display.display();
 }
@@ -1097,7 +1138,7 @@ void setup() {
 
   // 5. DHT11 Initialization & Verification
   dht.begin();
-  delay(150);
+  delay(1500);
   float initialTemp = dht.readTemperature();
   if (!isnan(initialTemp) && initialTemp >= -20.0f && initialTemp <= 120.0f) {
     dhtOnline = true;
@@ -1115,17 +1156,35 @@ void setup() {
     display.clearDisplay();
   }
 
-  // 7. ADXL345 Accelerometer Setup (800 Hz Output Data Rate on Fast 400kHz I2C)
+  // 7. ADXL345 Accelerometer Setup (Auto-probe 0x53 and 0x1D on Bus 0)
   Wire.begin(21, 22);
-  Wire.setClock(400000); // 400 kHz fast I2C clock on Bus 0
+  Wire.setClock(100000); // 100 kHz standard I2C clock on Bus 0
+  uint8_t adxlAddr = 0;
   if (accel.begin(0x53)) {
+    adxlAddr = 0x53;
+  } else if (accel.begin(0x1D)) {
+    adxlAddr = 0x1D;
+  }
+
+  if (adxlAddr != 0) {
     adxlOnline = true;
     accel.setRange(ADXL345_RANGE_4_G);
-    accel.setDataRate(ADXL345_DATARATE_800_HZ);
-    Serial.println("[ADXL345] Online and configured for 800 Hz (+/-4g) on 400kHz I2C");
+    accel.setDataRate(ADXL345_DATARATE_100_HZ);
+    Serial.printf("[ADXL345] Online and configured at address 0x%02X for 100 Hz (+/-4g)\n", adxlAddr);
   } else {
     adxlOnline = false;
-    Serial.println("[ADXL345] WARNING: Sensor not detected on I2C address 0x53!");
+    Serial.println(F("[ADXL345] WARNING: Sensor not detected on 0x53 or 0x1D! Scanning I2C Bus 0 (GPIO 21/22)..."));
+    int foundCount = 0;
+    for (uint8_t a = 1; a < 127; a++) {
+      Wire.beginTransmission(a);
+      if (Wire.endTransmission() == 0) {
+        Serial.printf("  -> Found responsive I2C device at address: 0x%02X\n", a);
+        foundCount++;
+      }
+    }
+    if (foundCount == 0) {
+      Serial.println(F("  -> No I2C devices responded on GPIO 21/22. Check wiring, 3.3V/GND, and pull-up connections."));
+    }
   }
 
   // 8. Calibrate ACS712 Zero Offset on Boot

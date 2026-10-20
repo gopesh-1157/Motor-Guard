@@ -17,7 +17,13 @@
  **************************************************************************/
 
 #include <Arduino.h>
-#include <MotoGuard_Motor_Health_inferencing.h>
+#if __has_include(<Motor_Guard_inferencing.h>)
+  #include <Motor_Guard_inferencing.h>
+#elif __has_include(<MotoGuard_Motor_Health_inferencing.h>)
+  #include <MotoGuard_Motor_Health_inferencing.h>
+#else
+  #include <Motor_Guard_inferencing.h>
+#endif
 
 // Static buffer for zero-heap-allocation inference
 static float ei_features[EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE];

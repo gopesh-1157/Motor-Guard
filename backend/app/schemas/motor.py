@@ -117,6 +117,21 @@ class SensorsConfig(BaseModel):
 
 
 class HealthThresholds(BaseModel):
+    """
+    Motor-specific custom threshold overrides (Tier 3 in 3-Tier Precedence Hierarchy).
+
+    INTENTIONAL THRESHOLD DIVERGENCE:
+    Default field values here (vib=0.5/1.0g, temp=45/50°C, curr=3.0/4.0A) represent
+    provisional datasheet baseline limits for uncalibrated RS-775 DC motors.
+
+    Precedence and Resolver Interaction:
+    When a motor is registered without custom user calibration, its thresholds contain
+    these defaults with provenance == "Provisional RS-775 baseline limits (uncalibrated)".
+    ThresholdResolver.is_explicit_motor_override() detects this exact signature and
+    treats them as uncalibrated provisional defaults, allowing the motor to inherit
+    Tier 2 Gateway Operational Limits (settings.OperationalLimitsBase) or Tier 1
+    Canonical System Fallbacks (threshold_service.get_builtin_defaults()).
+    """
     temperature_warning_c: float = Field(default=45.0, ge=0.0, le=120.0)
     temperature_critical_c: float = Field(default=50.0, ge=0.0, le=120.0)
     ambient_temp_warning_c: Optional[float] = Field(default=45.0, ge=0.0, le=120.0)
@@ -244,7 +259,7 @@ class MotorOut(BaseModel):
     assigned_device_id: Optional[str] = None
     configuration_version: int = 1
     health_status: Literal["healthy", "warning", "critical", "unknown"] = "unknown"
-    operational_state: Literal["RUNNING", "IDLE", "ALARM", "OFFLINE"] = "OFFLINE"
+    operational_state: Literal["RUNNING", "IDLE", "ALARM", "STALE", "OFFLINE", "UNKNOWN"] = "OFFLINE"
     effective_thresholds: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime

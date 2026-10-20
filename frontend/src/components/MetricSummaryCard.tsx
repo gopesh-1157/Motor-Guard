@@ -119,7 +119,7 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
 
   return (
     <div
-      className={`measurement-card ${isSelected ? 'selected' : ''}`}
+      className={`measurement-card scada-panel ${isSelected ? 'selected' : ''}`}
       onClick={onClick}
       style={{
         cursor: onClick ? 'pointer' : 'default',
@@ -130,9 +130,11 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
         <div className="measurement-name-group">
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Icon size={14} color="var(--brand-primary)" />
-            <span className="measurement-title">{title}</span>
+            <span className="measurement-title" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '12px' }}>{title}</span>
           </div>
-          <span className="measurement-sensor-type">{sensorLabel}</span>
+          <span className="measurement-sensor-type" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>
+            {sensorLabel} {thresholdCrit ? `· HH: ${thresholdCrit} ${unit}` : ''}
+          </span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -143,12 +145,12 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
                 fill="none"
                 stroke={
                   statusClass === 'critical'
-                    ? '#C43D43'
+                    ? '#EF4444'
                     : statusClass === 'warning'
-                    ? '#B7791F'
+                    ? '#F59E0B'
                     : statusClass === 'offline' || statusClass === 'unknown'
                     ? '#6B7280'
-                    : '#23845B'
+                    : '#10B981'
                 }
                 strokeWidth="1.75"
                 points={sparklinePoints}
@@ -158,7 +160,7 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
 
           <div
             className={`badge-status ${statusClass}`}
-            style={{ fontSize: '10px', padding: '1px 6px' }}
+            style={{ fontSize: '9.5px', fontFamily: 'var(--scada-mono-font)', padding: '1px 6px' }}
           >
             {badgeLabel}
           </div>
@@ -167,16 +169,16 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
 
       <div className="measurement-reading-row">
         <div>
-          <span className="measurement-big-val tabular-nums">{formattedVal}</span>
-          <span className="measurement-big-unit">{unit}</span>
+          <span className="measurement-big-val tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{formattedVal}</span>
+          <span className="measurement-big-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>{unit}</span>
         </div>
 
         {delta !== 0 && (
-          <div className="measurement-delta-tag tabular-nums">
+          <div className="measurement-delta-tag tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10.5px' }}>
             {isDeltaPositive ? (
-              <ArrowUpRight size={13} color="#B7791F" />
+              <ArrowUpRight size={13} color="#F59E0B" />
             ) : (
-              <ArrowDownRight size={13} color="#23845B" />
+              <ArrowDownRight size={13} color="#10B981" />
             )}
             <span>
               {isDeltaPositive ? '+' : ''}

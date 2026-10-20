@@ -625,7 +625,18 @@ async def test_threshold_boundary_decisions_at_limits():
 
     service = AlertService(mock_db)
 
-    # 1. Exact Warning boundary: values equal to warning limits produce 0 alerts
+    # 1. Values strictly below warning limits produce 0 alerts
+    telem_below_warn = {
+        "device_id": "esp32-node-001",
+        "motor_id": "MTR-TEST-BOUNDS",
+        "timestamp": "2026-10-19T09:59:59Z",
+        "sensors": {"temperature_c": 49.5, "current_a": 2.95, "vibration_g_rms": 0.195},
+        "sensor_status": {"temperature": "OK", "current": "OK", "vibration": "OK"},
+    }
+    alerts_below_warn = await service.evaluate_telemetry_for_alerts(telem_below_warn)
+    assert len(alerts_below_warn) == 0
+
+    # 1b. Exact Warning boundary: values equal to warning limits produce WARNING alerts (>= rule)
     telem_at_warn = {
         "device_id": "esp32-node-001",
         "motor_id": "MTR-TEST-BOUNDS",
@@ -634,9 +645,11 @@ async def test_threshold_boundary_decisions_at_limits():
         "sensor_status": {"temperature": "OK", "current": "OK", "vibration": "OK"},
     }
     alerts_exact_warn = await service.evaluate_telemetry_for_alerts(telem_at_warn)
-    assert len(alerts_exact_warn) == 0
+    assert len(alerts_exact_warn) == 3
+    for a in alerts_exact_warn:
+        assert a.severity == "WARNING"
 
-    # 2. Values slightly above warning threshold trigger WARNING
+    # 2. Values above warning threshold trigger WARNING
     telem_above_warn = {
         "device_id": "esp32-node-001",
         "motor_id": "MTR-TEST-BOUNDS",
@@ -708,7 +721,7 @@ async def test_vibration_rms_vs_peak_shock_separation():
     }
     alerts = await service.evaluate_telemetry_for_alerts(telem_peak_shock)
     assert len(alerts) == 1
-    assert alerts[0].trigger_type == "THRESHOLD_HIGH_VIBRATION"
+    assert alerts[0].trigger_type == "THRESHOLD_HIGH_VIBRATION_PEAK"
     assert alerts[0].severity == "WARNING"
     assert alerts[0].unit == "g pk"
     assert "Peak instantaneous vibration shock" in alerts[0].message

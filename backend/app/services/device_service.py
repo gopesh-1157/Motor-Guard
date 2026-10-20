@@ -167,15 +167,26 @@ class DeviceService:
         updated = await self.collection.find_one({"device_id": device_id}, {"_id": 0})
         return DeviceOut(**updated)
 
-    async def record_heartbeat_or_telemetry(self, device_id: str, motor_id: str) -> bool:
+    async def record_heartbeat_or_telemetry(
+        self, device_id: str, motor_id: str, update_liveness: bool = True
+    ) -> bool:
         """
         Record that a device is active and receiving telemetry.
-        Returns False if the device is assigned to a different motor in the registry (reject invalid telemetry).
+        Returns False if the device is unknown, not enrolled, or assigned to a different motor in the registry.
+        If update_liveness is True, updates last_seen and availability.
         """
         device = await self.collection.find_one({"device_id": device_id})
         now = datetime.now(timezone.utc)
 
         if device:
+            # Check enrollment status: must be active/enrolled, not pending or quarantined
+            if device.get("enrollment_status") not in ["enrolled", "active"]:
+                logger.warning(
+                    "Rejected telemetry from unenrolled device '%s' (status: %s)",
+                    device_id, device.get("enrollment_status")
+                )
+                return False
+
             assigned = device.get("assigned_motor_id")
             # If the device has an explicit motor assigned and incoming payload specifies a different motor, reject!
             if assigned and assigned != motor_id:
@@ -185,28 +196,34 @@ class DeviceService:
                 )
                 return False
 
-            await self.collection.update_one(
-                {"device_id": device_id},
-                {"$set": {"last_seen": now, "availability": "online", "updated_at": now}},
-            )
+            if update_liveness:
+                await self.collection.update_one(
+                    {"device_id": device_id},
+                    {"$set": {"last_seen": now, "availability": "online", "updated_at": now}},
+                )
+            return True
         else:
-            # Auto-enroll unknown devices in pending state so operators see them
+            # MG-F03: Do not automatically enroll unknown devices into active inventory.
+            # Quarantine unknown device in pending status and reject its telemetry until approved by Admin/Manager.
+            logger.warning(
+                "Rejected telemetry from unknown device '%s' claiming motor '%s'. Quarantined as pending.",
+                device_id, motor_id
+            )
             await self.collection.insert_one({
                 "device_id": device_id,
                 "device_type": "ESP32",
                 "board_variant": "Auto-Discovered",
                 "firmware_version": "1.0.0",
                 "site_id": "SITE-PLANT-A",
-                "assigned_motor_id": motor_id,
-                "enrollment_status": "enrolled",
-                "availability": "online",
+                "assigned_motor_id": None,
+                "enrollment_status": "pending",
+                "availability": "quarantined",
                 "last_seen": now,
                 "configuration_version": 1,
                 "created_at": now,
                 "updated_at": now,
             })
-
-        return True
+            return False
 
     async def get_device_status(self, device_id: str) -> DeviceStatusOut:
         """Return connectivity status, last telemetry, and freshness."""

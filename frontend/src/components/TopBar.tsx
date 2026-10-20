@@ -58,6 +58,8 @@ export const TopBar: FC<TopBarProps> = ({
         return 'Maintenance Workbench'
       case 'twin':
         return '3D Spatial Twin'
+      case 'landing':
+        return '3D Motor Tour & Industrial Showcase'
       case 'devices':
         return 'Device Nodes'
       case 'reports':
@@ -79,31 +81,39 @@ export const TopBar: FC<TopBarProps> = ({
     }
   }
 
+  const critCount = motors.filter((m) => m.latest.inference.health_status === 'critical').length
+  const warnCount = motors.filter((m) => m.latest.inference.health_status === 'warning').length
+  const healthyCount = motors.filter((m) => m.latest.inference.health_status === 'healthy').length
+
   return (
-    <header className="topbar">
+    <header className="topbar" style={{ borderBottom: '1px solid var(--border-main)' }}>
       <div className="topbar-left">
-        <div className="topbar-breadcrumbs">
-          <span className="breadcrumb-root">Plant Floor</span>
-          <span className="breadcrumb-separator">/</span>
-          <span className="breadcrumb-current">{getTabLabel(currentTab)}</span>
+        {/* SCADA Plant Cell Tag & Navigation Path */}
+        <div className="topbar-breadcrumbs" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '12px' }}>
+          <span className="scada-equip-tag" style={{ fontSize: '10px', padding: '2px 6px' }}>PLANT-01 // CELL-A</span>
+          <span className="breadcrumb-separator" style={{ color: 'var(--text-muted)' }}>::</span>
+          <span className="breadcrumb-current" style={{ fontWeight: 700, letterSpacing: '0.02em' }}>
+            {getTabLabel(currentTab).toUpperCase()}
+          </span>
         </div>
 
         {/* Global Motor Selector (Visible in Analytics & 3D Twin) */}
         {(currentTab === 'analytics' || currentTab === 'twin') && motors.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              Asset:
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '8px' }}>
+            <span style={{ fontSize: '10px', fontFamily: 'var(--scada-mono-font)', color: 'var(--text-muted)', fontWeight: 700 }}>
+              ASSET TAG:
             </span>
             <select
               value={selectedMotorId || motors[0].motor_id}
               onChange={(e) => onSelectMotor?.(e.target.value)}
               style={{
                 padding: '4px 8px',
-                borderRadius: 'var(--radius-sm)',
+                borderRadius: '3px',
                 border: '1px solid var(--border-main)',
                 background: 'var(--bg-subtle)',
                 color: 'var(--text-main)',
-                fontSize: '12px',
+                fontSize: '11px',
+                fontFamily: 'var(--scada-mono-font)',
                 fontWeight: 600,
                 outline: 'none',
                 cursor: 'pointer',
@@ -111,7 +121,7 @@ export const TopBar: FC<TopBarProps> = ({
             >
               {motors.map((m) => (
                 <option key={m.motor_id} value={m.motor_id}>
-                  {m.motor_id} ({m.source.toUpperCase()} - {m.latest.inference.health_status.toUpperCase()})
+                  {m.motor_id} [{m.source.toUpperCase()}] — {m.latest.inference.health_status.toUpperCase()}
                 </option>
               ))}
             </select>
@@ -120,25 +130,41 @@ export const TopBar: FC<TopBarProps> = ({
       </div>
 
       <div className="topbar-right">
-        {/* Last Data Received Time */}
-        <div className="topbar-timestamp" title="Timestamp of latest accepted telemetry event">
-          <Clock size={13} />
-          <span className="tabular-nums">Last: {formatTime(lastUpdatedIso)}</span>
+        {/* Real-time SCADA Annunciator Matrix */}
+        <div className="scada-annunciator-strip" title="SCADA Fleet Health Annunciator Matrix">
+          <div className={`scada-annunciator-tile ${critCount > 0 ? 'crit' : 'norm'}`}>
+            <span className={critCount > 0 ? 'scada-heartbeat-dot' : ''} style={{ background: critCount > 0 ? '#EF4444' : '#10B981', width: 6, height: 6 }} />
+            ALARM: {critCount}
+          </div>
+          <div className={`scada-annunciator-tile ${warnCount > 0 ? 'warn' : 'norm'}`}>
+            WARN: {warnCount}
+          </div>
+          <div className="scada-annunciator-tile norm">
+            NORM: {healthyCount}
+          </div>
         </div>
 
-        {/* Ingested Messages Count */}
+        {/* SCADA Sync Heartbeat & Timestamp */}
+        <div className="topbar-timestamp" title="Live SCADA Telemetry Stream Pacing (100 Hz / Edge Impulse Sync)" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '11px' }}>
+          <span className="scada-heartbeat-dot" />
+          <Clock size={12} />
+          <span className="tabular-nums">SYNC: {formatTime(lastUpdatedIso)}</span>
+        </div>
+
+        {/* Ingested Frames */}
         <div
           style={{
-            fontSize: '12px',
+            fontSize: '11px',
+            fontFamily: 'var(--scada-mono-font)',
             color: 'var(--text-secondary)',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
+            gap: '5px',
           }}
-          title="Total validated telemetry frames processed since launch"
+          title="Total validated telemetry frames processed since gateway launch"
         >
-          <Layers size={13} color="var(--text-muted)" />
-          <span>Ingested:</span>
+          <Layers size={12} color="var(--text-muted)" />
+          <span>FRAMES:</span>
           <strong className="tabular-nums" style={{ color: 'var(--text-main)' }}>
             {totalMessages.toLocaleString()}
           </strong>
@@ -148,13 +174,15 @@ export const TopBar: FC<TopBarProps> = ({
         <div
           className={`connection-pill ${esp32HwConnected ? 'online' : ''}`}
           style={{
-            background: esp32HwConnected ? 'var(--status-hardware-bg)' : undefined,
-            color: esp32HwConnected ? 'var(--status-hardware)' : undefined,
-            borderColor: esp32HwConnected ? 'var(--status-hardware-border)' : undefined,
+            fontFamily: 'var(--scada-mono-font)',
+            fontSize: '10.5px',
+            background: esp32HwConnected ? 'rgba(59, 130, 246, 0.12)' : undefined,
+            color: esp32HwConnected ? '#60A5FA' : undefined,
+            borderColor: esp32HwConnected ? 'rgba(59, 130, 246, 0.35)' : undefined,
           }}
           title={
             esp32HwConnected
-              ? 'ESP32 Physical Hardware node actively streaming'
+              ? 'ESP32 Physical Hardware node actively streaming via SoftAP/WiFi'
               : 'Waiting for ESP32 hardware connection'
           }
         >
@@ -162,13 +190,32 @@ export const TopBar: FC<TopBarProps> = ({
           <span>{esp32HwConnected ? 'ESP32 HW: ONLINE' : 'ESP32 HW: STANDBY'}</span>
         </div>
 
-        {/* WebSocket Gateway Status Badge */}
+        {/* Gateway WebSocket Connection */}
         <div
-          className={`connection-pill ${wsConnected ? 'online' : 'offline'}`}
-          title={wsConnected ? 'WebSocket live feed active' : 'Gateway feed disconnected'}
+          className={`connection-pill ${wsConnected ? 'online' : (!currentUser ? 'reconnecting' : 'offline')}`}
+          style={{
+            fontFamily: 'var(--scada-mono-font)',
+            fontSize: '10.5px',
+            background: !wsConnected && !currentUser ? 'rgba(245, 158, 11, 0.12)' : undefined,
+            color: !wsConnected && !currentUser ? '#F59E0B' : undefined,
+            borderColor: !wsConnected && !currentUser ? 'rgba(245, 158, 11, 0.35)' : undefined,
+          }}
+          title={
+            wsConnected
+              ? 'WebSocket OT telemetry feed active (Authenticated Live Bus)'
+              : !currentUser
+              ? 'Gateway secured — Sign In as Operator or Manager to stream live bus'
+              : 'Gateway feed disconnected'
+          }
         >
           <span className={`connection-dot ${wsConnected ? 'pulse' : ''}`} />
-          <span>{wsConnected ? 'GATEWAY CONNECTED' : 'OFFLINE'}</span>
+          <span>
+            {wsConnected
+              ? 'OT GW: SYNCED'
+              : !currentUser
+              ? 'OT GW: SECURED'
+              : 'OT GW: OFFLINE'}
+          </span>
         </div>
 
         {/* Theme Toggle Button */}
@@ -178,17 +225,17 @@ export const TopBar: FC<TopBarProps> = ({
           title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
           aria-label="Toggle theme"
         >
-          {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+          {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
         </button>
 
         {/* User Profile / Auth Button */}
         {!currentUser ? (
           <button
             className="btn-primary-glow"
-            style={{ padding: '6px 14px', fontSize: '12px' }}
+            style={{ padding: '5px 12px', fontSize: '11px', fontFamily: 'var(--scada-mono-font)' }}
             onClick={onOpenLogin}
           >
-            🔑 Sign In
+            🔒 OPERATOR SIGN IN
           </button>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -196,15 +243,16 @@ export const TopBar: FC<TopBarProps> = ({
               className="user-profile-pill"
               title={`Logged in as ${currentUser.username} (${currentUser.role})`}
               onClick={onOpenLogin}
+              style={{ fontFamily: 'var(--scada-mono-font)' }}
             >
-              <div className="user-avatar">
+              <div className="user-avatar" style={{ fontSize: '10px' }}>
                 {currentUser.username.slice(0, 2).toUpperCase()}
               </div>
               <div>
-                <div className="user-meta-name">{currentUser.username}</div>
+                <div className="user-meta-name" style={{ fontSize: '11px' }}>{currentUser.username}</div>
               </div>
-              <span className="user-role-badge">
-                {currentUser.role}
+              <span className="user-role-badge" style={{ fontSize: '9px', letterSpacing: '0.04em' }}>
+                {currentUser.role.toUpperCase()}
               </span>
             </div>
             {onLogout && (
@@ -215,7 +263,7 @@ export const TopBar: FC<TopBarProps> = ({
                 aria-label="Sign Out"
                 style={{ color: 'var(--status-critical)' }}
               >
-                <LogOut size={14} />
+                <LogOut size={13} />
               </button>
             )}
           </div>

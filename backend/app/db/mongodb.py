@@ -13,14 +13,22 @@ class MongoDBManager:
 
     @classmethod
     async def connect_to_database(cls) -> None:
+        if getattr(settings, "ENVIRONMENT", "").lower() == "test":
+            if cls.db is not None:
+                logger.info("Test environment active: Preserving isolated in-memory test database: %s", getattr(cls.db, "name", "mock_db"))
+                return
+            raise RuntimeError(
+                "CRITICAL TEST ISOLATION FAILURE: Direct MongoDB socket connection blocked in test environment! "
+                "Tests must use an isolated in-memory mock database."
+            )
         try:
             import re
             sanitized_uri = re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", settings.MONGO_URI)
             logger.info("Initializing MongoDB connection to %s", sanitized_uri)
             cls.client = AsyncIOMotorClient(
                 settings.MONGO_URI,
-                serverSelectionTimeoutMS=2000,
-                connectTimeoutMS=2000,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
             )
             cls.db = cls.client[settings.MONGO_DB_NAME]
             logger.info("Connected to MongoDB database: %s", settings.MONGO_DB_NAME)

@@ -181,7 +181,8 @@ def run_bridge():
 
                     # 1. Post to FastAPI Ingestion Endpoint
                     try:
-                        requests.post(API_INGEST_URL, json=payload, timeout=1.0)
+                        headers = {"X-Device-API-Key": os.getenv("GATEWAY_INGEST_SECRET", "motorguard-dev-ingest-key")}
+                        requests.post(API_INGEST_URL, json=payload, headers=headers, timeout=1.0)
                     except Exception as http_err:
                         logger.debug("HTTP ingest notice: %s", http_err)
 

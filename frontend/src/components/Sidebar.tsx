@@ -12,6 +12,7 @@ import {
   ChevronRight,
   ShieldCheck,
   Sliders,
+  Globe,
 } from 'lucide-react'
 import type { NavigationTab, UserProfile } from '../types'
 
@@ -43,6 +44,7 @@ export const Sidebar: FC<SidebarProps> = ({
 }) => {
   const navItems: NavItem[] = [
     { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { key: 'landing', label: '3D Motor Tour', icon: Globe },
     { key: 'fleet', label: 'Motor Fleet', icon: Sliders },
     { key: 'live', label: 'Live Monitoring', icon: Activity },
     { key: 'analytics', label: 'Analytics', icon: LineChart },
@@ -55,24 +57,25 @@ export const Sidebar: FC<SidebarProps> = ({
 
   // Role-based visibility filtering
   const visibleNavItems = navItems.filter((item) => {
+    if (item.key === 'landing') return true
     if (!currentUser) return item.key === 'overview'
     const role = currentUser.role
     if (role === 'Admin') return true
     if (role === 'Manager') {
-      return ['overview', 'fleet', 'live', 'analytics', 'alerts', 'reports'].includes(item.key)
+      return ['overview', 'landing', 'fleet', 'live', 'analytics', 'alerts', 'reports'].includes(item.key)
     }
     if (role === 'Technician') {
-      return ['overview', 'maintenance', 'live', 'analytics'].includes(item.key)
+      return ['overview', 'landing', 'maintenance', 'live', 'analytics'].includes(item.key)
     }
     if (role === 'Operator') {
-      return ['overview', 'live'].includes(item.key)
+      return ['overview', 'landing', 'live'].includes(item.key)
     }
     return item.key === 'overview'
   })
 
   // Map legacy/alias tabs to standard keys for active highlight
   const normalizedTab = (tab: NavigationTab): NavigationTab => {
-    if (tab === 'landing') return 'overview'
+    if (tab === 'landing') return 'landing'
     if (tab === 'motors') return 'fleet'
     if (tab === 'manager') return 'alerts'
     if (tab === 'technician') return 'maintenance'
@@ -87,13 +90,15 @@ export const Sidebar: FC<SidebarProps> = ({
         <div
           className="sidebar-brand"
           onClick={() => onTabChange('overview')}
-          title="MotorGuard Edge Gateway"
+          title="MotorGuard Edge Gateway DCS"
         >
-          <div className="brand-icon-box">MG</div>
+          <div className="brand-icon-box" style={{ background: 'linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%)', border: '1px solid #3B82F6', fontWeight: 800 }}>MG</div>
           {!collapsed && (
             <div className="brand-text-block">
-              <span className="brand-name">MotorGuard</span>
-              <span className="brand-tagline">Industrial Analytics</span>
+              <span className="brand-name" style={{ letterSpacing: '0.04em' }}>MotorGuard</span>
+              <span className="brand-tagline" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '9px', color: '#93C5FD' }}>
+                DCS // SCADA OT v2.4
+              </span>
             </div>
           )}
         </div>
@@ -121,7 +126,7 @@ export const Sidebar: FC<SidebarProps> = ({
               title={collapsed ? item.label : undefined}
             >
               <Icon className="sidebar-icon" size={18} />
-              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && <span style={{ fontSize: '12.5px' }}>{item.label}</span>}
               {!collapsed && item.badge && item.badge > 0 ? (
                 <span className="sidebar-badge-count">{item.badge}</span>
               ) : null}
@@ -131,9 +136,9 @@ export const Sidebar: FC<SidebarProps> = ({
       </nav>
 
       <div className="sidebar-footer">
-        <div className="sidebar-footer-info">
-          <ShieldCheck size={16} color="var(--status-healthy)" />
-          {!collapsed && <span>Edge Firmware v1.0.1</span>}
+        <div className="sidebar-footer-info" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>
+          <ShieldCheck size={15} color="var(--status-healthy)" />
+          {!collapsed && <span>IEC 61508 / ISO 10816</span>}
         </div>
       </div>
     </aside>

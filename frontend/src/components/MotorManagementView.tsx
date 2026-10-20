@@ -291,6 +291,11 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
 
   // Open Wizard
   const handleOpenWizard = () => {
+    if (!isManagerOrAdmin) {
+      onOpenLogin?.()
+      return
+    }
+
     // Generate next motor ID recommendation
     const nextNum = registeredMotors.length + 1
     const pad = String(nextNum).padStart(3, '0')
@@ -471,6 +476,10 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
   // Quick enroll ESP32 device
   const handleQuickEnrollDevice = async (e: FormEvent) => {
     e.preventDefault()
+    if (!isManagerOrAdmin) {
+      onOpenLogin?.()
+      return
+    }
     if (!quickDevId.trim()) return
 
     try {
@@ -619,16 +628,28 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
           <button
             className="btn-secondary"
             onClick={() => {
+              if (!isManagerOrAdmin) {
+                onOpenLogin?.()
+                return
+              }
               loadAudit()
               setIsAuditModalOpen(true)
             }}
+            title={!isManagerOrAdmin ? 'Requires Manager or Admin clearance' : 'View audit trail'}
           >
             <History size={15} /> Audit Trail
           </button>
 
           <button
             className="btn-secondary"
-            onClick={() => setIsEnrollDeviceModalOpen(true)}
+            onClick={() => {
+              if (!isManagerOrAdmin) {
+                onOpenLogin?.()
+                return
+              }
+              setIsEnrollDeviceModalOpen(true)
+            }}
+            title={!isManagerOrAdmin ? 'Requires Manager or Admin clearance' : 'Enroll an ESP32 device'}
           >
             <Cpu size={15} /> Enroll ESP32
           </button>
@@ -642,6 +663,17 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
           </button>
         </div>
       </div>
+
+      {isManagerOrAdmin && (
+        <div className="measurement-card" style={{ padding: '14px 16px', marginBottom: '18px' }}>
+          <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>Provisioning workflow</strong>
+          <ol style={{ margin: '8px 0 0 18px', padding: 0, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            <li>Enroll the ESP32 device, or choose an available enrolled device in the registration wizard.</li>
+            <li>Register the motor, complete its safety limits, and link exactly one device.</li>
+            <li>Power the device and confirm its first authenticated telemetry frame in Live Monitoring.</li>
+          </ol>
+        </div>
+      )}
 
       {/* RBAC Notice if unauthorized */}
       {!isManagerOrAdmin && (

@@ -11,6 +11,19 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class OperationalLimitsBase(BaseModel):
+    """
+    Gateway-wide operational thresholds schema (Tier 2 in 3-Tier Precedence Hierarchy).
+
+    INTENTIONAL THRESHOLD DIVERGENCE:
+    Default field values here (vib=0.20/0.80g RMS, temp=50/65°C, curr=3.5/4.0A) represent
+    the baseline plant facility envelope. They intentionally differ from Tier 3
+    provisional motor asset defaults (HealthThresholds) and Tier 1 built-in config
+    fallbacks (threshold_service.get_builtin_defaults()).
+
+    Precedence and Resolver Interaction:
+    When saved under system_settings document 'gateway_operational_limits', these values
+    govern all motors on the gateway that do not have explicit calibrated Tier 3 overrides.
+    """
     temperature_warning_c: float = Field(
         default=50.0,
         ge=15.0,

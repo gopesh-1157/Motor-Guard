@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, type FC } from 'react'
-import { Save, Check, Sliders, Radio, Cpu, RefreshCw, AlertTriangle, ShieldCheck, Loader2, Lock, Info } from 'lucide-react'
+import { Save, Check, Sliders, Radio, Cpu, RefreshCw, AlertTriangle, ShieldCheck, Loader2, Lock, Info, UserPlus } from 'lucide-react'
 import type { UserProfile } from '../types'
 
 interface SettingsViewProps {
@@ -33,6 +33,13 @@ export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }
   const [softApIp, setSoftApIp] = useState('192.168.4.1')
   const [gatewaySaved, setGatewaySaved] = useState(false)
 
+  // Admin-only operator account provisioning
+  const [operatorUsername, setOperatorUsername] = useState('')
+  const [operatorEmail, setOperatorEmail] = useState('')
+  const [operatorPassword, setOperatorPassword] = useState('')
+  const [operatorSaving, setOperatorSaving] = useState(false)
+  const [operatorFeedback, setOperatorFeedback] = useState<string | null>(null)
+
   // Simulator controls
   const [simMotor, setSimMotor] = useState('MTR-775-002')
   const [simCondition, setSimCondition] = useState('healthy')
@@ -42,6 +49,50 @@ export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }
   const isAuthorized = Boolean(
     currentUser && (currentUser.role === 'Admin' || currentUser.role === 'Manager' || currentUser.clearance_level >= 3)
   )
+  const isAdmin = currentUser?.role === 'Admin'
+
+  const handleCreateOperator = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin) {
+      setOperatorFeedback('Only an Administrator can create operator accounts.')
+      return
+    }
+
+    setOperatorSaving(true)
+    setOperatorFeedback(null)
+    try {
+      const token = currentUser?.token || localStorage.getItem('motorguard_auth_token')
+      const res = await fetch('/api/v1/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          username: operatorUsername.trim(),
+          email: operatorEmail.trim(),
+          password: operatorPassword,
+          role: 'Operator',
+        }),
+      })
+      if (res.ok) {
+        setOperatorFeedback(`Operator ${operatorUsername.trim()} created. Share credentials through your approved secure channel.`)
+        setOperatorUsername('')
+        setOperatorEmail('')
+        setOperatorPassword('')
+      } else {
+        const error = await res.json().catch(() => ({}))
+        const detail = Array.isArray(error.detail)
+          ? error.detail.map((item: { msg?: string }) => item.msg ?? 'Invalid field').join(', ')
+          : error.detail
+        setOperatorFeedback(detail || `Unable to create the operator account (HTTP ${res.status}).`)
+      }
+    } catch {
+      setOperatorFeedback('Network error: Unable to reach the account service.')
+    } finally {
+      setOperatorSaving(false)
+    }
+  }
 
   // Load persisted thresholds from MongoDB via authenticated API
   const fetchThresholds = useCallback(async () => {
@@ -227,6 +278,27 @@ export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: '20px' }}>
+        {/* Admin-only account creation keeps personnel records out of public views. */}
+        {isAdmin && (
+          <form onSubmit={handleCreateOperator} className="measurement-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <UserPlus size={18} color="var(--brand-primary)" />
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>Add Operator Account</h3>
+            </div>
+            <p style={{ margin: '0 0 14px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Operators can monitor assigned live equipment but cannot enroll devices, register motors, or change safety limits.
+            </p>
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <input className="search-input-field" value={operatorUsername} onChange={(e) => setOperatorUsername(e.target.value)} placeholder="Username" minLength={3} required />
+              <input className="search-input-field" type="email" value={operatorEmail} onChange={(e) => setOperatorEmail(e.target.value)} placeholder="Work email" required />
+              <input className="search-input-field" type="password" value={operatorPassword} onChange={(e) => setOperatorPassword(e.target.value)} placeholder="Temporary password (8+ characters)" minLength={8} required />
+              {operatorFeedback && <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{operatorFeedback}</div>}
+              <button type="submit" className="btn-primary" disabled={operatorSaving}>
+                <UserPlus size={14} /> <span>{operatorSaving ? 'Creating account...' : 'Create Operator'}</span>
+              </button>
+            </div>
+          </form>
+        )}
         {/* Panel 1: Industrial Safety Thresholds */}
         <form onSubmit={handleSaveThresholds} className="measurement-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>

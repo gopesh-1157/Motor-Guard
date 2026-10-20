@@ -232,11 +232,12 @@ class TestESP32HardwareContract:
         }
 
         alerts = await service.evaluate_telemetry_for_alerts(hardware_telemetry)
-        assert len(alerts) == 4
+        assert len(alerts) == 5
         trigger_types = [a.trigger_type for a in alerts]
         assert "THRESHOLD_OVERCURRENT" in trigger_types
         assert "THRESHOLD_OVERTEMPERATURE" in trigger_types
-        assert "THRESHOLD_HIGH_VIBRATION" in trigger_types
+        assert "THRESHOLD_HIGH_VIBRATION_RMS" in trigger_types
+        assert "THRESHOLD_HIGH_VIBRATION_PEAK" in trigger_types
         assert "CRITICAL_INFERENCE_FAULT" in trigger_types
 
         # Verify alert fields correctly attribute real physical hardware

@@ -155,7 +155,8 @@ Every interactive element across the MotorGuard user interface was cataloged, te
   1. **ACS712-20A (Current):** Pin GPIO 34 (ADC1 CH6). Increased multisampling to 120 samples with microsecond pacing. Deadband increased to `0.20 A` (from `0.05 A`) to account for the physical 10–20 mV ESP32 ADC noise floor.
   2. **DHT11 (Temperature):** Pin GPIO 4. Paced 2.5-second polling interval prevents self-heating and read collisions. Thresholds unified with safety logic: 50.0 °C warning, 75.0 °C emergency critical shutdown.
   3. **ADXL345 (Vibration):** Upgraded from 100 Hz to **800 Hz Output Data Rate (`ADXL345_DATARATE_800_HZ`)** on fast 400 kHz I2C (`Wire.setClock(400000)`). High-speed synchronous sampling eliminates rotational frequency aliasing on RS-775 motors (Nyquist frequency raised from 50 Hz to 400 Hz).
-  4. **Multi-Axis Vibration Feature Extraction:** Computes per-axis RMS (`vib_x_rms`, `vib_y_rms`, `vib_z_rms`), vector sum RMS, dynamic peak acceleration (`vib_peak_g`), and crest factor ($\text{Peak}/\text{RMS}$).
+  4. **Multi-Axis Vibration Feature Extraction:** Computes per-axis RMS (`vib_x_rm
+  s`, `vib_y_rms`, `vib_z_rms`), vector sum RMS, dynamic peak acceleration (`vib_peak_g`), and crest factor ($\text{Peak}/\text{RMS}$).
   5. **SH1106 OLED (128x64):** Isolated on separate I2C Bus 1 (GPIO 32/33) to prevent clock-stretching contention with ADXL345 high-speed bursts.
 * **Dual Operating Modes:**
   * **Production Mode (`DATA_COLLECTION_MODE 0`):** SoftAP + Web Server + MQTT telemetry broker streaming with on-device TinyML inference.

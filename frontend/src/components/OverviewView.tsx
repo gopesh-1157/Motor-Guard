@@ -25,6 +25,8 @@ interface OverviewViewProps {
   stats: DashboardStats
   motors: MotorState[]
   alerts: AlertItem[]
+  loadingAlerts?: boolean
+  alertFetchError?: string | null
   onSelectMotorForAnalytics: (motorId: string) => void
   onInspectMotorDetail?: (motor: MotorState) => void
   onNavigate: (tab: NavigationTab) => void
@@ -36,6 +38,8 @@ export const OverviewView: FC<OverviewViewProps> = ({
   stats,
   motors,
   alerts,
+  loadingAlerts = false,
+  alertFetchError = null,
   onSelectMotorForAnalytics,
   onInspectMotorDetail,
   onNavigate,
@@ -298,127 +302,127 @@ export const OverviewView: FC<OverviewViewProps> = ({
       <div className="kpi-summary-row" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
         {/* Metric 1: Total Registered Motors */}
         <div
-          className={`kpi-summary-card ${statusFilter === 'all' && connectionFilter === 'all' ? 'active' : ''}`}
+          className={`kpi-summary-card scada-panel ${statusFilter === 'all' && connectionFilter === 'all' ? 'active' : ''}`}
           onClick={() => {
             setStatusFilter('all')
             setConnectionFilter('all')
           }}
           title="Filter all registered drive motors"
         >
-          <div className="kpi-header">
-            <span>Total Motors</span>
-            <Activity size={14} color="var(--brand-primary)" />
+          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
+            <span>TOTAL ASSETS</span>
+            <Activity size={13} color="var(--brand-primary)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.totalMotors}</span>
-            <span className="kpi-unit">Registered</span>
+            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.totalMotors}</span>
+            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>DRIVES</span>
           </div>
-          <span className="kpi-subtext">Active fleet assets</span>
+          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>LINE 1 + 2 ASSETS</span>
         </div>
 
         {/* Metric 2: Healthy Motors */}
         <div
-          className={`kpi-summary-card healthy ${statusFilter === 'healthy' ? 'active' : ''}`}
+          className={`kpi-summary-card healthy scada-panel ${statusFilter === 'healthy' ? 'active' : ''}`}
           onClick={() => {
             setStatusFilter('healthy')
             setConnectionFilter('all')
           }}
           title="Filter healthy state motors"
         >
-          <div className="kpi-header">
-            <span>Healthy State</span>
-            <CheckCircle size={14} color="var(--status-healthy)" />
+          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
+            <span>NOMINAL RUN</span>
+            <CheckCircle size={13} color="var(--status-healthy)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.healthyCount}</span>
-            <span className="kpi-unit">Optimal</span>
+            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.healthyCount}</span>
+            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>OPTIMAL</span>
           </div>
-          <span className="kpi-subtext">Nominal vibration & temp</span>
+          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>ISO ZONE A/B OK</span>
         </div>
 
         {/* Metric 3: Warning Motors */}
         <div
-          className={`kpi-summary-card warning ${statusFilter === 'warning' ? 'active' : ''}`}
+          className={`kpi-summary-card warning scada-panel ${statusFilter === 'warning' ? 'active' : ''}`}
           onClick={() => {
             setStatusFilter('warning')
             setConnectionFilter('all')
           }}
           title="Filter warning state motors"
         >
-          <div className="kpi-header">
-            <span>Warning State</span>
-            <AlertTriangle size={14} color="var(--status-warning)" />
+          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
+            <span>ADVISORY</span>
+            <AlertTriangle size={13} color="var(--status-warning)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.warningCount}</span>
-            <span className="kpi-unit">Flagged</span>
+            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.warningCount}</span>
+            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>FLAGGED</span>
           </div>
-          <span className="kpi-subtext">Elevated thermal or load</span>
+          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>THERMAL / LOAD TRIP</span>
         </div>
 
         {/* Metric 4: Critical Motors */}
         <div
-          className={`kpi-summary-card critical ${statusFilter === 'critical' ? 'active' : ''}`}
+          className={`kpi-summary-card critical scada-panel ${statusFilter === 'critical' ? 'active' : ''}`}
           onClick={() => {
             setStatusFilter('critical')
             setConnectionFilter('all')
           }}
           title="Filter critical fault motors"
         >
-          <div className="kpi-header">
-            <span>Critical Faults</span>
-            <XCircle size={14} color="var(--status-critical)" />
+          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
+            <span>CRITICAL TRIP</span>
+            <XCircle size={13} color="var(--status-critical)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.criticalCount}</span>
-            <span className="kpi-unit">Alarms</span>
+            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.criticalCount}</span>
+            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>ALARMS</span>
           </div>
-          <span className="kpi-subtext">Immediate shutdown action</span>
+          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>SAFETY INTERLOCK</span>
         </div>
 
         {/* Metric 5: Offline Motors */}
         <div
-          className={`kpi-summary-card ${connectionFilter === 'offline' ? 'active' : ''}`}
+          className={`kpi-summary-card scada-panel ${connectionFilter === 'offline' ? 'active' : ''}`}
           onClick={() => {
             setConnectionFilter('offline')
             setStatusFilter('all')
           }}
           title="Filter offline motors"
         >
-          <div className="kpi-header">
-            <span>Offline Motors</span>
-            <WifiOff size={14} color="var(--status-offline)" />
+          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
+            <span>COMM OFFLINE</span>
+            <WifiOff size={13} color="var(--status-offline)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.offlineCount}</span>
-            <span className="kpi-unit">Nodes</span>
+            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.offlineCount}</span>
+            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>NODES</span>
           </div>
-          <span className="kpi-subtext">Stale telemetry &gt; 15s</span>
+          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>HEARTBEAT TIMEOUT</span>
         </div>
 
         {/* Metric 6: Connected ESP32 Devices */}
         <div
-          className={`kpi-summary-card hardware ${sourceFilter === 'hardware' ? 'active' : ''}`}
+          className={`kpi-summary-card hardware scada-panel ${sourceFilter === 'hardware' ? 'active' : ''}`}
           onClick={() => {
             setSourceFilter(sourceFilter === 'hardware' ? 'all' : 'hardware')
           }}
           title="Filter physical hardware ESP32 nodes"
         >
-          <div className="kpi-header">
-            <span>ESP32 Nodes</span>
-            <Radio size={14} color="var(--status-hardware)" />
+          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
+            <span>ESP32 OT NODES</span>
+            <Radio size={13} color="var(--status-hardware)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.hardwareCount ?? 0}</span>
-            <span className="kpi-unit">{stats.esp32ApConnected ? 'HW Online' : 'Active'}</span>
+            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.hardwareCount ?? 0}</span>
+            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.esp32ApConnected ? 'HW ONLINE' : 'ACTIVE'}</span>
           </div>
-          <span className="kpi-subtext">DHT11 + ACS712 + ADXL</span>
+          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>DHT11 + ACS712 + ADXL</span>
         </div>
       </div>
 
       {/* Simulator Test Controls Bar */}
       <div
-        className="measurement-card"
+        className="measurement-card scada-panel"
         style={{
           padding: '10px 16px',
           display: 'flex',
@@ -432,56 +436,56 @@ export const OverviewView: FC<OverviewViewProps> = ({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Sliders size={15} color="var(--brand-primary)" />
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-main)' }}>
-            Simulator Fault Injection Bar (Verification Suite):
+          <span style={{ fontSize: '11px', fontFamily: 'var(--scada-mono-font)', fontWeight: 700, color: 'var(--text-main)', letterSpacing: '0.03em' }}>
+            SCADA TESTBENCH OVERRIDE INTERLOCK:
           </span>
           {simMessage && (
-            <span style={{ fontSize: '11px', color: 'var(--brand-primary)', fontWeight: 600 }}>
+            <span style={{ fontSize: '11px', fontFamily: 'var(--scada-mono-font)', color: 'var(--brand-primary)', fontWeight: 600 }}>
               {simMessage}
             </span>
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--scada-mono-font)' }}>
           <button
             className="btn-secondary"
-            style={{ fontSize: '11px', padding: '4px 8px' }}
+            style={{ fontSize: '10.5px', padding: '4px 8px' }}
             disabled={isSimInjecting}
             onClick={() => handleSimInject('healthy', 'MTR-775-002')}
           >
-            Revert to Healthy
+            NORMALIZE [HEALTHY]
           </button>
           <button
             className="btn-secondary"
-            style={{ fontSize: '11px', padding: '4px 8px', borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }}
+            style={{ fontSize: '10.5px', padding: '4px 8px', borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }}
             disabled={isSimInjecting}
             onClick={() => handleSimInject('warning_temp', 'MTR-775-002')}
           >
-            Inject Warning Temp (55.4°C)
+            INJECT WARN TEMP (55.4°C)
           </button>
           <button
             className="btn-secondary"
-            style={{ fontSize: '11px', padding: '4px 8px', borderColor: 'var(--status-critical)', color: 'var(--status-critical)' }}
+            style={{ fontSize: '10.5px', padding: '4px 8px', borderColor: 'var(--status-critical)', color: 'var(--status-critical)' }}
             disabled={isSimInjecting}
             onClick={() => handleSimInject('critical_vib', 'MTR-775-003')}
           >
-            Inject Critical Vib (0.89g)
+            INJECT CRIT VIB (0.89g)
           </button>
           <button
             className="btn-secondary"
-            style={{ fontSize: '11px', padding: '4px 8px', borderColor: 'var(--status-critical)', color: 'var(--status-critical)' }}
+            style={{ fontSize: '10.5px', padding: '4px 8px', borderColor: 'var(--status-critical)', color: 'var(--status-critical)' }}
             disabled={isSimInjecting}
             onClick={() => handleSimInject('overload_current', 'MTR-775-002')}
           >
-            Inject High Current (4.65A)
+            INJECT HIGH LOAD (4.65A)
           </button>
           <button
             className="btn-secondary"
-            style={{ fontSize: '11px', padding: '4px 8px' }}
+            style={{ fontSize: '10.5px', padding: '4px 8px' }}
             disabled={isSimInjecting}
             onClick={() => handleSimInject('sensor_disconnected', 'MTR-775-002')}
           >
-            Simulate Disconnect
+            FAULT DISCONNECT
           </button>
         </div>
       </div>
@@ -489,14 +493,14 @@ export const OverviewView: FC<OverviewViewProps> = ({
       {/* Main Grid: Fleet Status Table (Left 65%) + Restrained 3D Twin & Recent Alerts (Right 35%) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.8fr) minmax(320px, 1fr)', gap: '20px' }}>
         {/* Left Column: Fleet Asset Table */}
-        <div className="data-table-container">
+        <div className="data-table-container scada-panel">
           <div className="table-toolbar">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-main)' }}>
-                Plant Floor Drive Fleet
+              <span style={{ fontSize: '13px', fontFamily: 'var(--scada-mono-font)', fontWeight: 700, color: 'var(--text-main)', letterSpacing: '0.04em' }}>
+                PLANT FLOOR DRIVE ROSTER
               </span>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                ({filteredMotors.length} assets matching)
+              <span style={{ fontSize: '11px', fontFamily: 'var(--scada-mono-font)', color: 'var(--text-muted)' }}>
+                [{filteredMotors.length} ASSETS ONLINE]
               </span>
             </div>
 
@@ -507,17 +511,18 @@ export const OverviewView: FC<OverviewViewProps> = ({
                 <input
                   type="text"
                   className="search-input-field"
-                  placeholder="Search Motor or Device ID..."
+                  placeholder="Search Tag / Node ID..."
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value)
                     setCurrentPage(1)
                   }}
+                  style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '11px' }}
                 />
               </div>
 
               {/* Status filter pill group */}
-              <div className="segmented-control">
+              <div className="segmented-control" style={{ fontFamily: 'var(--scada-mono-font)' }}>
                 {['all', 'healthy', 'warning', 'critical'].map((st) => (
                   <button
                     key={st}
@@ -526,6 +531,7 @@ export const OverviewView: FC<OverviewViewProps> = ({
                       setStatusFilter(st)
                       setCurrentPage(1)
                     }}
+                    style={{ fontSize: '10px' }}
                   >
                     {st.toUpperCase()}
                   </button>
@@ -547,14 +553,15 @@ export const OverviewView: FC<OverviewViewProps> = ({
                   background: 'var(--bg-subtle)',
                   color: 'var(--text-main)',
                   fontSize: '11px',
+                  fontFamily: 'var(--scada-mono-font)',
                   cursor: 'pointer',
                 }}
               >
-                <option value="id-asc">Sort: Motor ID (A-Z)</option>
-                <option value="temp-desc">Sort: Temperature (High-Low)</option>
+                <option value="id-asc">Sort: Asset Tag (A-Z)</option>
+                <option value="temp-desc">Sort: Temp (High-Low)</option>
                 <option value="current-desc">Sort: Current (High-Low)</option>
-                <option value="vib-desc">Sort: Vibration (High-Low)</option>
-                <option value="health-desc">Sort: Severity (High-Low)</option>
+                <option value="vib-desc">Sort: Vib RMS (High-Low)</option>
+                <option value="health-desc">Sort: Alarm Severity</option>
               </select>
             </div>
           </div>
@@ -562,16 +569,16 @@ export const OverviewView: FC<OverviewViewProps> = ({
           <div style={{ overflowX: 'auto' }}>
             <table className="industrial-table">
               <thead>
-                <tr>
-                  <th>Motor Asset</th>
-                  <th>Node &amp; Source</th>
-                  <th>Health Status</th>
-                  <th>Temp (°C)</th>
-                  <th>Current (A)</th>
-                  <th>Vib RMS (g)</th>
-                  <th>Power (W)</th>
-                  <th>Last Seen</th>
-                  <th style={{ textAlign: 'center' }}>Actions</th>
+                <tr style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10.5px' }}>
+                  <th>ASSET TAG</th>
+                  <th>NODE &amp; BUS</th>
+                  <th>STATUS [IEC 60034]</th>
+                  <th>TEMP [°C]</th>
+                  <th>CURRENT [A RMS]</th>
+                  <th>VIB [g RMS]</th>
+                  <th>POWER [W]</th>
+                  <th>SCADA SYNC</th>
+                  <th style={{ textAlign: 'center' }}>ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -599,12 +606,12 @@ export const OverviewView: FC<OverviewViewProps> = ({
                         }}
                       >
                         <td>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <strong style={{ color: 'var(--text-main)', fontSize: '13px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span className="scada-equip-tag" style={{ width: 'fit-content' }}>
                               {m.motor_id}
-                            </strong>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-                              Line 1 Drive Motor
+                            </span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '10px', fontFamily: 'var(--scada-mono-font)' }}>
+                              LINE 1 DRIVE
                             </span>
                           </div>
                         </td>
@@ -752,21 +759,21 @@ export const OverviewView: FC<OverviewViewProps> = ({
         {/* Right Column: Fleet Aggregates + Three.js Equipment Viewer + Recent Alarms */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Fleet Aggregate Trends Panel */}
-          <div className="measurement-card" style={{ padding: '14px 16px' }}>
+          <div className="measurement-card scada-panel" style={{ padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Zap size={15} color="var(--brand-primary)" />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>
-                  Fleet Aggregate Diagnostics
+                <Zap size={14} color="var(--brand-primary)" />
+                <span style={{ fontSize: '12px', fontFamily: 'var(--scada-mono-font)', fontWeight: 700, color: 'var(--text-main)', letterSpacing: '0.04em' }}>
+                  FLEET AGGREGATE OT HEALTH
                 </span>
               </div>
-              <span style={{ fontSize: '11px', color: 'var(--status-healthy)', fontWeight: 600 }}>
-                {aggregateAverages.healthPct}% Fleet Health
+              <span style={{ fontSize: '11px', fontFamily: 'var(--scada-mono-font)', color: 'var(--status-healthy)', fontWeight: 700 }}>
+                {aggregateAverages.healthPct}% AVAILABILITY
               </span>
             </div>
 
             {/* Health Distribution Progress Bar */}
-            <div style={{ display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', marginBottom: '12px', background: 'var(--border-subtle)' }}>
+            <div style={{ display: 'flex', height: '6px', borderRadius: '3px', overflow: 'hidden', marginBottom: '12px', background: 'var(--border-subtle)' }}>
               <div
                 style={{
                   width: `${(stats.healthyCount / (stats.totalMotors || 1)) * 100}%`,
@@ -798,21 +805,21 @@ export const OverviewView: FC<OverviewViewProps> = ({
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' }}>
-              <div style={{ padding: '6px', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Avg Temp</div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sensor-temp)' }} className="tabular-nums">
+              <div className="scada-gauge-box">
+                <div className="scada-gauge-header">Avg Temp</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sensor-temp)', fontFamily: 'var(--scada-mono-font)' }} className="tabular-nums">
                   {aggregateAverages.avgTemp} °C
                 </div>
               </div>
-              <div style={{ padding: '6px', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Avg Current</div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sensor-current)' }} className="tabular-nums">
+              <div className="scada-gauge-box">
+                <div className="scada-gauge-header">Avg Curr</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sensor-current)', fontFamily: 'var(--scada-mono-font)' }} className="tabular-nums">
                   {aggregateAverages.avgCurrent} A
                 </div>
               </div>
-              <div style={{ padding: '6px', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Avg Vib RMS</div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sensor-vibration)' }} className="tabular-nums">
+              <div className="scada-gauge-box">
+                <div className="scada-gauge-header">Avg Vib</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sensor-vibration)', fontFamily: 'var(--scada-mono-font)' }} className="tabular-nums">
                   {aggregateAverages.avgVib} g
                 </div>
               </div>
@@ -821,34 +828,47 @@ export const OverviewView: FC<OverviewViewProps> = ({
 
           {/* Three.js Motor Model Viewer */}
           {activeMotor3D && (
-            <Motor3DViewer
-              motorId={activeMotor3D.motor_id}
-              healthStatus={activeMotor3D.latest.inference.health_status}
-              temperature={activeMotor3D.latest.sensors.temperature_c}
-              current={activeMotor3D.latest.sensors.current_a}
-              vibration={activeMotor3D.latest.sensors.vibration_g_rms}
-            />
+            <div className="scada-panel">
+              <Motor3DViewer
+                motorId={activeMotor3D.motor_id}
+                healthStatus={activeMotor3D.latest.inference.health_status}
+                temperature={activeMotor3D.latest.sensors.temperature_c}
+                current={activeMotor3D.latest.sensors.current_a}
+                vibration={activeMotor3D.latest.sensors.vibration_g_rms}
+              />
+            </div>
           )}
 
           {/* Recent Active Alerts Card */}
-          <div className="data-table-container">
+          <div className="data-table-container scada-panel">
             <div className="table-toolbar">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <ShieldAlert size={16} color="var(--status-critical)" />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>
-                  Recent Alarms &amp; Safety Trips
+                <ShieldAlert size={15} color="var(--status-critical)" />
+                <span style={{ fontSize: '12px', fontFamily: 'var(--scada-mono-font)', fontWeight: 700, color: 'var(--text-main)', letterSpacing: '0.04em' }}>
+                  ACTIVE TRIPS &amp; INTERLOCKS
                 </span>
               </div>
               <button
                 className="btn-secondary"
-                style={{ padding: '2px 8px', fontSize: '11px' }}
+                style={{ padding: '2px 8px', fontSize: '10px', fontFamily: 'var(--scada-mono-font)' }}
                 onClick={() => onNavigate('alerts')}
               >
-                View All
+                VIEW LOG
               </button>
             </div>
 
-            {activeAlerts.length === 0 ? (
+            {loadingAlerts ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                <Clock size={20} style={{ margin: '0 auto 6px', display: 'block' }} />
+                Synchronizing alarms with gateway...
+              </div>
+            ) : alertFetchError ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#ef4444', fontSize: '12px', background: 'rgba(239, 68, 68, 0.08)', borderRadius: '6px', margin: '8px' }}>
+                <AlertTriangle size={20} style={{ margin: '0 auto 6px', display: 'block', color: '#ef4444' }} />
+                <strong>Alerts Gateway Unavailable:</strong>
+                <div style={{ marginTop: '4px', color: 'var(--text-secondary)' }}>{alertFetchError}</div>
+              </div>
+            ) : activeAlerts.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--status-healthy)', fontSize: '12px' }}>
                 <CheckCircle size={20} style={{ margin: '0 auto 6px', display: 'block' }} />
                 No active alarm conditions detected in plant line.

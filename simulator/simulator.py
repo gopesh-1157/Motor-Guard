@@ -352,11 +352,11 @@ def run_simulator():
 
     simulate_hw_twin = os.getenv("SIMULATE_HARDWARE_NODE", "false").lower() in ("true", "1")
     motors = [
-        VirtualMotor(motor_id="MTR-775-002", device_id="sim-node-002", profile="warning_temp", live_baseline=live_baseline),
-        VirtualMotor(motor_id="MTR-775-003", device_id="sim-node-003", profile="critical_vib", live_baseline=live_baseline),
+        VirtualMotor(motor_id="MTR-775-002", device_id="esp32-node-002", profile="warning_temp", live_baseline=live_baseline),
+        VirtualMotor(motor_id="MTR-775-003", device_id="esp32-node-003", profile="critical_vib", live_baseline=live_baseline),
     ]
     if simulate_hw_twin:
-        motors.insert(0, VirtualMotor(motor_id="MTR-775-001", device_id="sim-node-001", profile="healthy", live_baseline=live_baseline))
+        motors.insert(0, VirtualMotor(motor_id="MTR-775-001", device_id="esp32-node-001", profile="healthy", live_baseline=live_baseline))
 
     try:
         client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)

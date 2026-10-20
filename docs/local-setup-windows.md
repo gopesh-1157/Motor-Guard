@@ -16,7 +16,7 @@ Ensure the following tools are installed on your Windows machine:
 ### Step 2.1: Clone and Open Workspace
 ```powershell
 # Open Windows PowerShell and navigate to your MotorGuard directory
-cd C:\Users\<Username>\Downloads\MotorGuard
+cd C:\Users\<Username>\Downloads\MotorGuard     
 ```
 
 ### Step 2.2: Configure Environment Variables

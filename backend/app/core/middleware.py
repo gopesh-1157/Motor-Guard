@@ -145,7 +145,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         try:
             peer_addr = ipaddress.ip_address(peer_ip)
             for entry in trusted_list:
-                if "/" in entry:
+                if entry.lower() in ("private", "rfc1918"):
+                    if peer_addr.is_private or peer_addr.is_loopback:
+                        return True
+                elif "/" in entry:
                     try:
                         if peer_addr in ipaddress.ip_network(entry, strict=False):
                             return True

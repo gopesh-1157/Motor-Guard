@@ -297,24 +297,24 @@ class TestMotorGuardRegressionSuite:
         # 1. Warning level RMS (0.150g)
         telem_warn = create_base_telemetry(vib=0.150)
         alerts_warn = await service.evaluate_telemetry_for_alerts(telem_warn)
-        vib_alert = next(a for a in alerts_warn if a.trigger_type == "THRESHOLD_HIGH_VIBRATION")
+        vib_alert = next(a for a in alerts_warn if a.trigger_type == "THRESHOLD_HIGH_VIBRATION_RMS")
         assert vib_alert.severity == "WARNING"
 
         # 2. Critical level RMS (0.550g)
         telem_crit = create_base_telemetry(vib=0.550)
         alerts_crit = await service.evaluate_telemetry_for_alerts(telem_crit)
-        vib_crit_alert = next(a for a in alerts_crit if a.trigger_type == "THRESHOLD_HIGH_VIBRATION")
+        vib_crit_alert = next(a for a in alerts_crit if a.trigger_type == "THRESHOLD_HIGH_VIBRATION_RMS")
         assert vib_crit_alert.severity == "CRITICAL"
 
     @pytest.mark.asyncio
     async def test_10_invalid_or_stale_temperature_data_triggers_sensor_alert(self):
-        """10. Disconnected DHT11 triggers SENSOR_DISCONNECTED alert, never fabricated as 0°C."""
+        """10. Disconnected DHT11 triggers a temperature-specific alert, never fabricated as 0°C."""
         mock_db, cols = get_mock_db()
         service = AlertService(mock_db)
 
         telem = create_base_telemetry(temp=None, temp_status="DISCONNECTED")
         alerts = await service.evaluate_telemetry_for_alerts(telem)
-        dis_alert = next(a for a in alerts if a.trigger_type == "SENSOR_DISCONNECTED")
+        dis_alert = next(a for a in alerts if a.trigger_type == "SENSOR_TEMPERATURE_DISCONNECTED")
         assert dis_alert.severity == "WARNING"
         assert "DHT11" in dis_alert.message
 

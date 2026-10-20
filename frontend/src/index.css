@@ -7,40 +7,40 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  /* Surface Tokens (Light Industrial Theme Specification) */
-  --bg-app: #F3F5F7;
+  /* Default Theme: Ultra-Clean Precision Industrial Instrumentation (White / Alabaster) */
+  --bg-app: #F8FAFC;
   --bg-panel: #FFFFFF;
   --bg-card: #FFFFFF;
-  --bg-subtle: #F8FAFC;
-  --bg-hover: #F0F2F5;
-  --bg-active: #E9ECEF;
-  --bg-sidebar: #253746;
+  --bg-subtle: #F1F5F9;
+  --bg-hover: #F1F5F9;
+  --bg-active: #E2E8F0;
+  --bg-sidebar: #FFFFFF;
   --bg-header: #FFFFFF;
 
   /* Typography Colors */
-  --text-main: #1F2937;
-  --text-secondary: #64748B;
-  --text-muted: #94A3B8;
+  --text-main: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
   --text-inverse: #FFFFFF;
 
   /* Industrial Borders & Grids */
-  --border-main: #DCE2E8;
-  --border-subtle: #E2E8F0;
+  --border-main: #E2E8F0;
+  --border-subtle: #F1F5F9;
   --border-strong: #CBD5E1;
   --chart-grid: #E2E8F0;
-  --input-bg: #F8FAFC;
+  --input-bg: #FFFFFF;
 
-  /* Brand & Interactive (Primary Accent: #E58A26) */
-  --brand-primary: #E58A26;
-  --brand-primary-hover: #D47B1B;
-  --brand-primary-light: #FFF7ED;
-  --brand-primary-ring: rgba(229, 138, 38, 0.25);
-  --focus-ring: #E58A26;
+  /* Brand & Interactive (Precision Industrial Cobalt / Cyan) */
+  --brand-primary: #0284C7;
+  --brand-primary-hover: #0369A1;
+  --brand-primary-light: #E0F2FE;
+  --brand-primary-ring: rgba(2, 132, 199, 0.25);
+  --focus-ring: #0284C7;
 
   /* Operational Status Colors */
-  --status-healthy: #16A34A;
-  --status-healthy-bg: #F0FDF4;
-  --status-healthy-border: #BBF7D0;
+  --status-healthy: #059669;
+  --status-healthy-bg: #ECFDF5;
+  --status-healthy-border: #A7F3D0;
 
   --status-warning: #D97706;
   --status-warning-bg: #FFFBEB;
@@ -54,13 +54,13 @@
   --status-offline-bg: #F1F5F9;
   --status-offline-border: #CBD5E1;
 
-  --status-info: #2563EB;
-  --status-info-bg: #EFF6FF;
-  --status-info-border: #BFDBFE;
+  --status-info: #0284C7;
+  --status-info-bg: #E0F2FE;
+  --status-info-border: #BAE6FD;
 
   --status-neutral: #64748B;
   --status-neutral-bg: #F1F5F9;
-  --status-neutral-border: #DCE2E8;
+  --status-neutral-border: #E2E8F0;
 
   --status-hardware: #2563EB;
   --status-hardware-bg: #EFF6FF;
@@ -72,15 +72,15 @@
 
   /* Sensor Chart Colors */
   --sensor-temp: #EA580C;
-  --sensor-curr: #2563EB;
+  --sensor-curr: #0284C7;
   --sensor-vib: #7C3AED;
   --sensor-power: #0D9488;
 
   /* Shadows */
-  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.07), 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
-  --shadow-lg: 0 12px 20px -4px rgba(16, 24, 40, 0.08), 0 4px 6px -2px rgba(16, 24, 40, 0.03);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.03);
 
   /* Radius */
   --radius-xs: 4px;
@@ -90,7 +90,7 @@
 
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
 
   /* Layout */
   --sidebar-width: 250px;
@@ -100,45 +100,56 @@
   --transition-normal: 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Dark Theme Support (Preserving Consistency when Toggled) */
+/* Dark Theme Support (Toggled via Theme Button) */
 [data-theme="dark"] {
-  --bg-app: #0F1216;
-  --bg-panel: #171B21;
-  --bg-card: #171B21;
-  --bg-subtle: #1B2028;
-  --bg-hover: #222832;
-  --bg-active: #29303C;
-  --bg-sidebar: #13171D;
-  --bg-header: #171B21;
+  --bg-app: #080C14;
+  --bg-panel: #0E1422;
+  --bg-card: #0E1422;
+  --bg-subtle: #121B2D;
+  --bg-hover: #18233A;
+  --bg-active: #1F2E4D;
+  --bg-sidebar: #070A12;
+  --bg-header: #0B101C;
 
-  --text-main: #F2F4F7;
-  --text-secondary: #9AA4B2;
-  --text-muted: #6C7787;
-  --text-inverse: #101318;
+  --text-main: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  --text-inverse: #080C14;
 
-  --border-main: #272E3B;
-  --border-subtle: #1F2530;
-  --border-strong: #384252;
+  --border-main: #1C283E;
+  --border-subtle: #131C2D;
+  --border-strong: #273856;
+  --chart-grid: #162033;
+  --input-bg: #0B101C;
 
-  --brand-primary: #4F7BF2;
-  --brand-primary-hover: #698FF5;
-  --brand-primary-light: #1C2640;
-  --brand-primary-ring: rgba(79, 123, 242, 0.3);
+  --brand-primary: #38BDF8;
+  --brand-primary-hover: #60A5FA;
+  --brand-primary-light: rgba(56, 189, 248, 0.12);
+  --brand-primary-ring: rgba(56, 189, 248, 0.3);
+  --focus-ring: #38BDF8;
 
-  --status-healthy: #34D399;
+  --status-healthy: #10B981;
   --status-healthy-bg: rgba(16, 185, 129, 0.12);
-  --status-healthy-border: rgba(16, 185, 129, 0.3);
+  --status-healthy-border: rgba(16, 185, 129, 0.32);
 
-  --status-warning: #FBBF24;
+  --status-warning: #F59E0B;
   --status-warning-bg: rgba(245, 158, 11, 0.12);
-  --status-warning-border: rgba(245, 158, 11, 0.3);
+  --status-warning-border: rgba(245, 158, 11, 0.35);
 
-  --status-critical: #F87171;
-  --status-critical-bg: rgba(239, 68, 68, 0.12);
-  --status-critical-border: rgba(239, 68, 68, 0.3);
+  --status-critical: #EF4444;
+  --status-critical-bg: rgba(239, 68, 68, 0.15);
+  --status-critical-border: rgba(239, 68, 68, 0.4);
+
+  --status-offline: #64748B;
+  --status-offline-bg: rgba(100, 116, 139, 0.12);
+  --status-offline-border: rgba(100, 116, 139, 0.3);
+
+  --status-info: #0EA5E9;
+  --status-info-bg: rgba(14, 165, 233, 0.12);
+  --status-info-border: rgba(14, 165, 233, 0.32);
 
   --status-neutral: #94A3B8;
-  --status-neutral-bg: rgba(148, 163, 184, 0.12);
+  --status-neutral-bg: rgba(148, 163, 184, 0.1);
   --status-neutral-border: rgba(148, 163, 184, 0.25);
 
   --status-hardware: #60A5FA;
@@ -149,10 +160,10 @@
   --status-sim-bg: rgba(139, 92, 246, 0.15);
   --status-sim-border: rgba(139, 92, 246, 0.35);
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 12px 20px rgba(0, 0, 0, 0.5);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.65);
 }
 
 /* ==============================================================================
@@ -239,7 +250,7 @@ html, body {
   width: var(--sidebar-width);
   height: 100vh;
   background: var(--bg-sidebar);
-  border-right: 1px solid #1E2D3A;
+  border-right: 1px solid var(--border-main);
   display: flex;
   flex-direction: column;
   transition: width var(--transition-normal);
@@ -258,7 +269,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #1E2D3A;
+  border-bottom: 1px solid var(--border-main);
 }
 
 .sidebar-brand {
@@ -266,7 +277,7 @@ html, body {
   align-items: center;
   gap: 10px;
   text-decoration: none;
-  color: #FFFFFF;
+  color: var(--text-main);
   font-weight: 700;
   font-size: 15px;
   cursor: pointer;
@@ -295,14 +306,14 @@ html, body {
 
 .brand-name {
   font-weight: 700;
-  color: #F8FAFC;
+  color: var(--text-main);
   letter-spacing: -0.02em;
 }
 
 .brand-tagline {
   font-size: 10px;
   font-weight: 500;
-  color: #94A3B8;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -311,7 +322,7 @@ html, body {
   background: none;
   border: none;
   cursor: pointer;
-  color: #94A3B8;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -322,8 +333,8 @@ html, body {
 }
 
 .sidebar-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #F8FAFC;
+  background: var(--bg-hover);
+  color: var(--text-main);
 }
 
 .sidebar-nav-list {
@@ -346,7 +357,7 @@ html, body {
   background: none;
   border: none;
   cursor: pointer;
-  color: #94A3B8;
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   text-align: left;
@@ -356,13 +367,13 @@ html, body {
 }
 
 .sidebar-item-btn:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: #FFFFFF;
+  background: var(--bg-hover);
+  color: var(--text-main);
 }
 
 .sidebar-item-btn.active {
-  background: rgba(229, 138, 38, 0.18);
-  color: #FFFFFF;
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
   font-weight: 600;
 }
 
@@ -396,7 +407,7 @@ html, body {
 
 .sidebar-footer {
   padding: 12px 14px;
-  border-top: 1px solid #1E2D3A;
+  border-top: 1px solid var(--border-main);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -407,7 +418,7 @@ html, body {
   align-items: center;
   gap: 8px;
   font-size: 11px;
-  color: #94A3B8;
+  color: var(--text-muted);
 }
 
 /* ==============================================================================
@@ -4928,4 +4939,311 @@ html, body {
   }
 }
 
+/* ==============================================================================
+   SCADA / INDUSTRIAL GRADE DCS DESIGN EXTENSIONS
+   DIN 43802 / IEC 60034 / ISO 10816-3 Industrial Control Standards
+   ============================================================================== */
+
+:root {
+  --scada-bg-bezel: #121824;
+  --scada-border-bezel: #1F2A3D;
+  --scada-accent-cyan: #0EA5E9;
+  --scada-accent-amber: #F59E0B;
+  --scada-accent-emerald: #10B981;
+  --scada-accent-crimson: #EF4444;
+  --scada-mono-font: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+/* SCADA Industrial Panel with Precision Borders & Corner Tick Marks */
+.scada-panel {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+
+[data-theme="dark"] .scada-panel {
+  background: #0E1420;
+  border-color: #1A2638;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Industrial Corner Crosshairs */
+.scada-panel::before,
+.scada-panel::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.scada-panel::before {
+  top: 3px;
+  left: 3px;
+  border-top: 2px solid var(--border-strong);
+  border-left: 2px solid var(--border-strong);
+}
+
+.scada-panel::after {
+  bottom: 3px;
+  right: 3px;
+  border-bottom: 2px solid var(--border-strong);
+  border-right: 2px solid var(--border-strong);
+}
+
+/* Industrial Annunciator Matrix Bar */
+.scada-annunciator-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.04);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+[data-theme="dark"] .scada-annunciator-strip {
+  background: #090E17;
+  border-color: #172233;
+}
+
+.scada-annunciator-tile {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-family: var(--scada-mono-font);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  user-select: none;
+}
+
+.scada-annunciator-tile.norm {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10B981;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.scada-annunciator-tile.warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+  border-color: rgba(245, 158, 11, 0.35);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.2);
+}
+
+.scada-annunciator-tile.crit {
+  background: rgba(239, 68, 68, 0.18);
+  color: #EF4444;
+  border-color: rgba(239, 68, 68, 0.45);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+  animation: scadaAlarmFlash 1.2s infinite ease-in-out;
+}
+
+.scada-annunciator-tile.info {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0EA5E9;
+  border-color: rgba(14, 165, 233, 0.3);
+}
+
+@keyframes scadaAlarmFlash {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px #EF4444); }
+  50% { opacity: 0.75; filter: drop-shadow(0 0 8px #EF4444); }
+}
+
+/* SCADA Universal Panel */
+.scada-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.scada-panel:hover {
+  border-color: var(--border-strong);
+}
+
+/* Stamped Industrial Equipment Tag */
+.scada-equip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--scada-mono-font);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  background: var(--brand-primary-light);
+  color: var(--brand-primary);
+  border: 1px solid rgba(2, 132, 199, 0.3);
+  border-radius: 3px;
+}
+
+[data-theme="dark"] .scada-equip-tag {
+  background: #111A29;
+  color: #93C5FD;
+  border-color: #1D2E47;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* ISO 10816-3 Vibration Severity Gauge Bar */
+.iso-severity-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.iso-severity-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.iso-zone {
+  height: 100%;
+  transition: opacity 0.2s ease;
+}
+
+.iso-zone.zone-a {
+  width: 30%;
+  background: #10B981;
+}
+
+.iso-zone.zone-b {
+  width: 25%;
+  background: #84CC16;
+}
+
+.iso-zone.zone-c {
+  width: 25%;
+  background: #F59E0B;
+}
+
+.iso-zone.zone-d {
+  width: 20%;
+  background: #EF4444;
+}
+
+.iso-marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  background: #FFFFFF;
+  border-radius: 1px;
+  box-shadow: 0 0 4px #000000;
+  transform: translateX(-50%);
+  transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.iso-legend-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  font-family: var(--scada-mono-font);
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* Industrial Telemetry Gauge Box */
+.scada-gauge-box {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-main);
+  border-radius: 4px;
+  padding: 8px 10px;
+  position: relative;
+  transition: border-color var(--transition-fast);
+}
+
+[data-theme="dark"] .scada-gauge-box {
+  background: #0B111D;
+  border-color: #172438;
+}
+
+.scada-gauge-box:hover {
+  border-color: var(--brand-primary);
+}
+
+.scada-gauge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  font-family: var(--scada-mono-font);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scada-gauge-limit {
+  font-size: 9.5px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.scada-gauge-val {
+  font-family: var(--scada-mono-font);
+  font-size: 19px;
+  font-weight: 700;
+  font-feature-settings: 'tnum', 'zero';
+  letter-spacing: -0.03em;
+  margin-top: 2px;
+  line-height: 1.15;
+}
+
+.scada-gauge-val.healthy { color: var(--status-healthy); }
+.scada-gauge-val.warning { color: var(--status-warning); }
+.scada-gauge-val.critical { color: var(--status-critical); }
+.scada-gauge-val.unavailable { color: var(--text-muted); font-size: 12px; }
+
+.scada-gauge-unit {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 3px;
+}
+
+/* SCADA Plant Grid Background Pattern */
+.scada-grid-texture {
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+[data-theme="dark"] .scada-grid-texture {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+/* Pulsing SCADA Sync Heartbeat LED */
+.scada-heartbeat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10B981;
+  display: inline-block;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+  animation: scadaPulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes scadaPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.6; }
+}
 

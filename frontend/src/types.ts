@@ -159,7 +159,7 @@ export interface RegisteredMotor {
   assigned_device_id?: string | null
   configuration_version: number
   health_status: HealthStatus
-  operational_state: 'RUNNING' | 'IDLE' | 'ALARM' | 'OFFLINE'
+  operational_state: 'RUNNING' | 'IDLE' | 'ALARM' | 'STALE' | 'OFFLINE' | 'UNKNOWN'
   created_at: string
   updated_at: string
   created_by?: string | null

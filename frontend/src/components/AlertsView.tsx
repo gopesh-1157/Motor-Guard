@@ -18,6 +18,9 @@ import type { AlertItem, UserProfile, MotorState } from '../types'
 interface AlertsViewProps {
   alerts: AlertItem[]
   motors: MotorState[]
+  loadingAlerts?: boolean
+  alertFetchError?: string | null
+  onRetryFetchAlerts?: () => void
   onAssignAlert: (
     alertId: string,
     technician: string,
@@ -57,7 +60,13 @@ const SEVERITY_ICONS: Record<string, string> = {
 const TRIGGER_TYPE_LABELS: Record<string, string> = {
   THRESHOLD_OVERCURRENT: 'Overcurrent Trip',
   THRESHOLD_OVERTEMPERATURE: 'Thermal Exceedance',
-  THRESHOLD_HIGH_VIBRATION: 'Vibration Anomaly',
+  THRESHOLD_HIGH_VIBRATION: 'Vibration Anomaly (Legacy)',
+  THRESHOLD_HIGH_VIBRATION_RMS: 'Vibration RMS Anomaly',
+  THRESHOLD_HIGH_VIBRATION_PEAK: 'Peak-Shock Anomaly',
+  SENSOR_DISCONNECTED: 'Sensor Fault (Legacy - Review Required)',
+  SENSOR_TEMPERATURE_DISCONNECTED: 'Temperature Sensor Fault',
+  SENSOR_CURRENT_DISCONNECTED: 'Current Sensor Fault',
+  SENSOR_VIBRATION_DISCONNECTED: 'Vibration Sensor Fault',
   CRITICAL_INFERENCE_FAULT: 'TinyML Critical Diagnosis',
   DEVICE_OFFLINE: 'Device Connection Lost',
 }
@@ -66,6 +75,12 @@ const TRIGGER_TYPE_ICONS: Record<string, string> = {
   THRESHOLD_OVERCURRENT: '⚡',
   THRESHOLD_OVERTEMPERATURE: '🌡️',
   THRESHOLD_HIGH_VIBRATION: '📳',
+  THRESHOLD_HIGH_VIBRATION_RMS: '📳',
+  THRESHOLD_HIGH_VIBRATION_PEAK: '⚡',
+  SENSOR_DISCONNECTED: '🔌',
+  SENSOR_TEMPERATURE_DISCONNECTED: '🌡️',
+  SENSOR_CURRENT_DISCONNECTED: '🔌',
+  SENSOR_VIBRATION_DISCONNECTED: '📳',
   CRITICAL_INFERENCE_FAULT: '🧠',
   DEVICE_OFFLINE: '📡',
 }
@@ -78,6 +93,9 @@ const TECHNICIANS = [
 export const AlertsView: FC<AlertsViewProps> = ({
   alerts,
   motors,
+  loadingAlerts = false,
+  alertFetchError = null,
+  onRetryFetchAlerts,
   onAssignAlert,
   onResolveAlert,
   onAcknowledgeAlert,
@@ -481,10 +499,56 @@ export const AlertsView: FC<AlertsViewProps> = ({
 
       {/* ── ALERT CARDS ── */}
       <div className="alerts-list" ref={alertListRef}>
-        {filteredAlerts.length === 0 ? (
+        {loadingAlerts ? (
+          <div className="alerts-loading" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-secondary, #94a3b8)' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '1rem', animation: 'spin 1.5s linear infinite' }}>⏳</div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary, #f8fafc)', marginBottom: '0.5rem' }}>
+              Loading Active Alerts...
+            </h3>
+            <p style={{ fontSize: '0.9rem', maxWidth: '420px', margin: '0 auto' }}>
+              Synchronizing active alarm conditions with the industrial gateway API.
+            </p>
+          </div>
+        ) : alertFetchError ? (
+          <div
+            className="alerts-error-banner"
+            style={{
+              padding: '2.5rem 1.5rem',
+              borderRadius: '12px',
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              textAlign: 'center',
+              margin: '1rem 0',
+            }}
+          >
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>⚠️</div>
+            <h3 style={{ color: '#ef4444', fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+              Alerts Gateway Unavailable
+            </h3>
+            <p style={{ color: 'var(--text-secondary, #cbd5e1)', fontSize: '0.92rem', maxWidth: '520px', margin: '0 auto 1.5rem' }}>
+              {alertFetchError}. Safety and threshold exceedance status cannot be verified. Do not assume equipment is safe.
+            </p>
+            {onRetryFetchAlerts && (
+              <button
+                className="alerts-btn alerts-btn--primary"
+                onClick={onRetryFetchAlerts}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.6rem 1.5rem',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                <span>🔄</span> Retry Connection
+              </button>
+            )}
+          </div>
+        ) : filteredAlerts.length === 0 ? (
           <div className="alerts-empty">
             <div className="alerts-empty__icon">✓</div>
-            <h3>No Alerts Match Current Filters</h3>
+            <h3>{filterTab === 'ALL' && severityFilter === 'ALL' && !searchQuery ? 'No active alerts' : 'No Alerts Match Current Filters'}</h3>
             <p>
               {filterTab === 'ALL' && severityFilter === 'ALL' && !searchQuery
                 ? 'All motor telemetry and ML health classifications are currently within safe operational limits.'

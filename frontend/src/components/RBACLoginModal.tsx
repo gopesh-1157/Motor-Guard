@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import type { FC, FormEvent } from 'react'
 import { animate } from 'animejs'
-import { ShieldCheck, Lock, User, Eye, EyeOff, AlertCircle, ChevronDown, ChevronUp, LogOut, KeyRound } from 'lucide-react'
-import type { UserProfile, UserRole } from '../types'
+import { ShieldCheck, Lock, User, Eye, EyeOff, AlertCircle, LogOut, KeyRound } from 'lucide-react'
+import type { UserProfile } from '../types'
 
 interface RBACLoginModalProps {
   isOpen: boolean
@@ -12,57 +12,7 @@ interface RBACLoginModalProps {
   onLogout?: () => void
 }
 
-interface PersonaInfo {
-  username: string
-  password: string
-  role: UserRole
-  title: string
-  clearanceLevel: number
-  badgeColor: string
-}
 
-const DEV_PERSONAS: PersonaInfo[] = [
-  {
-    username: 'admin',
-    password: 'adminpassword123',
-    role: 'Admin',
-    title: 'System Administrator',
-    clearanceLevel: 4,
-    badgeColor: '#a855f7',
-  },
-  {
-    username: 'manager_alice',
-    password: 'manager123',
-    role: 'Manager',
-    title: 'Operations Plant Manager',
-    clearanceLevel: 3,
-    badgeColor: '#3b82f6',
-  },
-  {
-    username: 'tech_dave',
-    password: 'tech123',
-    role: 'Technician',
-    title: 'Senior Field Technician',
-    clearanceLevel: 2,
-    badgeColor: '#10b981',
-  },
-  {
-    username: 'tech_sara',
-    password: 'tech123',
-    role: 'Technician',
-    title: 'TinyML Diagnostics Specialist',
-    clearanceLevel: 2,
-    badgeColor: '#06b6d4',
-  },
-  {
-    username: 'operator_bob',
-    password: 'operator123',
-    role: 'Operator',
-    title: 'Line Floor SCADA Operator',
-    clearanceLevel: 1,
-    badgeColor: '#f59e0b',
-  },
-]
 
 export const RBACLoginModal: FC<RBACLoginModalProps> = ({
   isOpen,
@@ -78,7 +28,6 @@ export const RBACLoginModal: FC<RBACLoginModalProps> = ({
   const [rememberMe, setRememberMe] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [showDevDrawer, setShowDevDrawer] = useState(false)
 
   const modalRef = useRef<HTMLDivElement>(null)
   const formBoxRef = useRef<HTMLFormElement>(null)
@@ -100,11 +49,7 @@ export const RBACLoginModal: FC<RBACLoginModalProps> = ({
 
   if (!isOpen) return null
 
-  const handleSelectDevPersona = (p: PersonaInfo) => {
-    setUsername(p.username)
-    setPassword(p.password)
-    setErrorMsg(null)
-  }
+
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -355,9 +300,6 @@ export const RBACLoginModal: FC<RBACLoginModalProps> = ({
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
-                <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Default credentials: <strong style={{ color: 'var(--text-main)' }}>admin</strong> / <strong style={{ color: 'var(--brand-primary)' }}>adminpassword123</strong></span>
-                </div>
               </div>
 
               {/* Remember station checkbox */}
@@ -429,75 +371,7 @@ export const RBACLoginModal: FC<RBACLoginModalProps> = ({
             </div>
           </form>
 
-          {/* Local Testing / Dev Drawer (ONLY rendered in local development; completely stripped in production builds) */}
-          {import.meta.env.DEV && (
-            <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px dashed var(--border-main)' }}>
-              <button
-                type="button"
-                onClick={() => setShowDevDrawer(!showDevDrawer)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  width: '100%',
-                  padding: '4px 0',
-                }}
-              >
-                <span>🧪 Local Dev Test Roles (Hidden in Production Builds)</span>
-                {showDevDrawer ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </button>
 
-              {showDevDrawer && (
-                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 6px 0' }}>
-                    Quick-switch role clearance for local interface testing:
-                  </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
-                    {DEV_PERSONAS.map((p) => (
-                      <button
-                        key={p.username}
-                        type="button"
-                        onClick={() => handleSelectDevPersona(p)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '6px 10px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--border-main)',
-                          background: 'var(--bg-card)',
-                          color: 'var(--text-main)',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                        }}
-                      >
-                        <span style={{ fontWeight: 600 }}>{p.username}</span>
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            padding: '1px 5px',
-                            borderRadius: '4px',
-                            background: `${p.badgeColor}20`,
-                            color: p.badgeColor,
-                            fontWeight: 700,
-                          }}
-                        >
-                          L{p.clearanceLevel} {p.role}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Security Compliance Footnote */}
           <div

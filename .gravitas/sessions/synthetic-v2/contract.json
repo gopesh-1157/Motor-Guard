@@ -1,0 +1,23 @@
+{
+  "mode": "implement",
+  "objective": "Create a reproducible, physically bounded synthetic 775-motor dataset with run-isolated Edge Impulse splits.",
+  "acceptance_criteria": [
+    "Synthetic records use the expected Edge Impulse features and labels.",
+    "No healthy or warning record crosses a critical current or vibration boundary.",
+    "Train, validation, and test outputs do not share run IDs.",
+    "The existing datasets remain unchanged."
+  ],
+  "non_goals": [
+    "Do not claim synthetic data calibrates the physical motor.",
+    "Do not change firmware thresholds or sensor wiring."
+  ],
+  "risk": "low",
+  "budget": "balanced",
+  "allowed_write_scope": [
+    ".gravitas/sessions/synthetic-v2/contract.json",
+    "scripts/generate_synthetic_edge_impulse_dataset.py",
+    "tests/unit/test_synthetic_dataset_generator.py",
+    "data/synthetic_v2/"
+  ],
+  "verification": "targeted"
+}

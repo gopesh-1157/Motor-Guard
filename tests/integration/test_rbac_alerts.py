@@ -329,7 +329,7 @@ class TestThresholdAlertsEngine:
 
     @pytest.mark.asyncio
     async def test_shaking_vibration_triggers_warning_alert(self):
-        """Vibration RMS > 0.100g (e.g. 0.145g from manual shaking) generates THRESHOLD_HIGH_VIBRATION alert."""
+        """Vibration RMS > 0.100g generates a metric-specific RMS alert."""
         mock_collection = AsyncMock()
         mock_collection.find_one = AsyncMock(return_value=None)
         mock_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="alert_vib_1"))
@@ -348,7 +348,7 @@ class TestThresholdAlertsEngine:
 
         alerts = await service.evaluate_telemetry_for_alerts(telemetry)
         assert len(alerts) == 1
-        assert alerts[0].trigger_type == "THRESHOLD_HIGH_VIBRATION"
+        assert alerts[0].trigger_type == "THRESHOLD_HIGH_VIBRATION_RMS"
         assert alerts[0].severity == "WARNING"
         assert alerts[0].trigger_value == 0.145
         assert alerts[0].threshold_limit == 0.100
@@ -356,7 +356,7 @@ class TestThresholdAlertsEngine:
 
     @pytest.mark.asyncio
     async def test_peak_vibration_shock_triggers_alert(self):
-        """Instantaneous peak vibration shock > 0.350g triggers THRESHOLD_HIGH_VIBRATION even if window RMS is low."""
+        """Instantaneous peak shock creates an independent peak alert even if RMS is low."""
         mock_collection = AsyncMock()
         mock_collection.find_one = AsyncMock(return_value=None)
         mock_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="alert_vib_peak"))
@@ -375,7 +375,7 @@ class TestThresholdAlertsEngine:
 
         alerts = await service.evaluate_telemetry_for_alerts(telemetry)
         assert len(alerts) == 1
-        assert alerts[0].trigger_type == "THRESHOLD_HIGH_VIBRATION"
+        assert alerts[0].trigger_type == "THRESHOLD_HIGH_VIBRATION_PEAK"
         assert alerts[0].trigger_value == 0.520
         assert alerts[0].threshold_limit == 0.350
 
@@ -385,14 +385,14 @@ class TestThresholdAlertsEngine:
         now = datetime.now(timezone.utc)
         mock_collection = AsyncMock()
         def fake_find_one_and_update(filter_query, update_query, **kwargs):
-            if filter_query.get("trigger_type") == "THRESHOLD_HIGH_VIBRATION":
+            if filter_query.get("trigger_type") == "THRESHOLD_HIGH_VIBRATION_RMS":
                 return {
                     "_id": "alert_obj_1",
                     "alert_id": "ALT-20261018-001",
                     "motor_id": "MTR-775-001",
                     "device_id": "esp32-node-001",
                     "severity": "WARNING",
-                    "trigger_type": "THRESHOLD_HIGH_VIBRATION",
+                    "trigger_type": "THRESHOLD_HIGH_VIBRATION_RMS",
                     "trigger_value": 0.030,
                     "threshold_limit": 0.100,
                     "unit": "g",
@@ -427,7 +427,7 @@ class TestThresholdAlertsEngine:
         auto_resolved = service.consume_auto_resolved_alerts()
         assert len(auto_resolved) == 1
         assert auto_resolved[0].state == "RESOLVED"
-        assert auto_resolved[0].trigger_type == "THRESHOLD_HIGH_VIBRATION"
+        assert auto_resolved[0].trigger_type == "THRESHOLD_HIGH_VIBRATION_RMS"
 
     @pytest.mark.asyncio
     async def test_overcurrent_normalization_auto_resolves(self):

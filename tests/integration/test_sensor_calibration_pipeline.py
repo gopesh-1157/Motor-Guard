@@ -310,7 +310,7 @@ class TestVibrationCalibration:
             "sensor_status": {"vibration": "OK"},
         }
         alerts = await service.evaluate_telemetry_for_alerts(telemetry_high)
-        assert any(a.trigger_type == "THRESHOLD_HIGH_VIBRATION" and a.severity == "WARNING" for a in alerts)
+        assert any(a.trigger_type == "THRESHOLD_HIGH_VIBRATION_RMS" and a.severity == "WARNING" for a in alerts)
 
         # Normalizes below 85% of 0.15g (0.127g)
         telemetry_normal = {
@@ -320,7 +320,7 @@ class TestVibrationCalibration:
             "sensor_status": {"vibration": "OK"},
         }
         await service.evaluate_telemetry_for_alerts(telemetry_normal)
-        active_vib_alert = await db["alerts"].find_one({"motor_id": "MTR-775-001", "trigger_type": "THRESHOLD_HIGH_VIBRATION"})
+        active_vib_alert = await db["alerts"].find_one({"motor_id": "MTR-775-001", "trigger_type": "THRESHOLD_HIGH_VIBRATION_RMS"})
         assert active_vib_alert["state"] == "RESOLVED"
 
 
@@ -357,7 +357,7 @@ class TestTemperatureCalibration:
 
     @pytest.mark.asyncio
     async def test_dht11_disconnection_triggers_sensor_alert(self):
-        """When DHT11 read fails, sensor_status="DISCONNECTED" triggers SENSOR_DISCONNECTED alert without crash."""
+        """When DHT11 read fails, it triggers a temperature-specific sensor alert without crash."""
         db = MockAsyncDatabase()
         service = AlertService(db=db)
 
@@ -368,7 +368,7 @@ class TestTemperatureCalibration:
             "sensor_status": {"temperature": "DISCONNECTED", "current": "OK", "vibration": "OK"},
         }
         alerts = await service.evaluate_telemetry_for_alerts(telemetry_disconnected)
-        assert any(a.trigger_type == "SENSOR_DISCONNECTED" for a in alerts)
+        assert any(a.trigger_type == "SENSOR_TEMPERATURE_DISCONNECTED" for a in alerts)
 
 
 # ==============================================================================

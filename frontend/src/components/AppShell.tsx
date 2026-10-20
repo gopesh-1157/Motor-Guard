@@ -53,14 +53,20 @@ export const AppShell: FC<AppShellProps> = ({
     })
   }
 
-  // Theme state: default is industrial light (#F5F6F7), supports dark
+  // Theme state: default is clean precision industrial white theme, supports dark toggle
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return (localStorage.getItem('motorguard_theme') as 'light' | 'dark') || 'light'
+    const saved = localStorage.getItem('motorguard_theme_v4')
+    if (saved === 'dark' || saved === 'light') return saved
+    localStorage.removeItem('motorguard_theme')
+    localStorage.removeItem('motorguard_theme_v2')
+    localStorage.removeItem('motorguard_theme_v3')
+    localStorage.setItem('motorguard_theme_v4', 'light')
+    return 'light'
   })
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('motorguard_theme', theme)
+    localStorage.setItem('motorguard_theme_v4', theme)
   }, [theme])
 
   const toggleTheme = () => {

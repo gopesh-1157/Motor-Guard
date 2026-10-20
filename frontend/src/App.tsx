@@ -29,53 +29,7 @@ const ViewLoadingFallback = () => (
   </div>
 )
 
-const INITIAL_ALERTS: AlertItem[] = [
-  {
-    alert_id: 'ALT-20261010-CRIT01',
-    motor_id: 'MTR-775-003',
-    device_id: 'sim-node-003',
-    severity: 'CRITICAL',
-    trigger_type: 'THRESHOLD_HIGH_VIBRATION',
-    trigger_value: 0.865,
-    threshold_limit: 0.200,
-    unit: 'g',
-    message: 'CRITICAL bearing harmonic vibration on MTR-775-003: measured 0.865 g (limit 0.200 g)',
-    state: 'ACTIVE',
-    triggered_at: '2026-10-10T04:30:00.000Z',
-    priority: 'CRITICAL',
-  },
-  {
-    alert_id: 'ALT-20261010-WARN01',
-    motor_id: 'MTR-775-002',
-    device_id: 'sim-node-002',
-    severity: 'WARNING',
-    trigger_type: 'THRESHOLD_OVERTEMPERATURE',
-    trigger_value: 54.8,
-    threshold_limit: 50.0,
-    unit: '°C',
-    message: 'Thermal threshold warning on MTR-775-002: measured 54.8 °C (limit 50.0 °C)',
-    state: 'ACTIVE',
-    triggered_at: '2026-10-10T04:15:00.000Z',
-    priority: 'HIGH',
-  },
-]
-
 export default function App() {
-  const {
-    motorList,
-    stats,
-    wsConnected,
-    totalMessages,
-    injectSyntheticTelemetry,
-    refreshMotors,
-  } = useTelemetry()
-
-  // Navigation tab state (defaulting to overview)
-  const [currentTab, setCurrentTab] = useState<NavigationTab>('overview')
-
-  // Selected motor ID for analytics & 3D inspection
-  const [selectedMotorId, setSelectedMotorId] = useState<string>('MTR-775-001')
-
   // RBAC User Session state (strictly defaults to null unless authenticated)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
@@ -85,13 +39,30 @@ export default function App() {
     } catch {}
     return null
   })
+
+  const {
+    motorList,
+    stats,
+    wsConnected,
+    totalMessages,
+    refreshMotors,
+    clearTelemetry,
+  } = useTelemetry(currentUser)
+
+  // Navigation tab state (defaulting to overview)
+  const [currentTab, setCurrentTab] = useState<NavigationTab>('overview')
+
+  // Selected motor ID for analytics & 3D inspection
+  const [selectedMotorId, setSelectedMotorId] = useState<string>('MTR-775-001')
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false)
 
   // Selected motor for detail inspection modal
   const [selectedModalMotor, setSelectedModalMotor] = useState<MotorState | null>(null)
 
   // Alerts state for Manager & Technician workflows
-  const [alerts, setAlerts] = useState<AlertItem[]>(INITIAL_ALERTS)
+  const [alerts, setAlerts] = useState<AlertItem[]>([])
+  const [loadingAlerts, setLoadingAlerts] = useState<boolean>(false)
+  const [alertFetchError, setAlertFetchError] = useState<string | null>(null)
 
   // Helper: get auth headers for API calls
   const getAuthHeaders = useCallback((): Record<string, string> => {
@@ -135,75 +106,43 @@ export default function App() {
   }, [])
 
   // Fetch real alerts from backend API on mount or auth update
-  useEffect(() => {
-    async function fetchAlerts() {
-      try {
-        const token = localStorage.getItem('motorguard_auth_token')
-        const headers: Record<string, string> = {}
-        if (token) headers['Authorization'] = `Bearer ${token}`
-        const res = await fetch('/api/v1/alerts', { headers })
-        if (res.ok) {
-          const data = await res.json()
-          if (Array.isArray(data)) {
-            setAlerts(data)
-          }
-        }
-      } catch {
-        // Fallback to initial seeded alerts
-      }
+  const fetchAlerts = useCallback(async () => {
+    if (!currentUser) {
+      setAlerts([])
+      setAlertFetchError(null)
+      setLoadingAlerts(false)
+      return
     }
+
+    setLoadingAlerts(true)
+    setAlertFetchError(null)
+    try {
+      const token = localStorage.getItem('motorguard_auth_token')
+      const headers: Record<string, string> = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const res = await fetch('/api/v1/alerts', { headers })
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) {
+          setAlerts(data)
+          setAlertFetchError(null)
+        } else {
+          setAlertFetchError('Malformed alert response from gateway API')
+        }
+      } else {
+        setAlertFetchError(`Alerts service unavailable (HTTP ${res.status})`)
+      }
+    } catch {
+      setAlertFetchError('Network failure connecting to gateway alerts service')
+    } finally {
+      setLoadingAlerts(false)
+    }
+  }, [currentUser])
+
+  useEffect(() => {
     fetchAlerts()
     refreshMotors()
-  }, [currentUser, refreshMotors])
-
-
-  // Auto-seed initial 3 motors into fleet if empty so dashboard is immediately rich
-  useEffect(() => {
-    if (motorList.length === 0) {
-      injectSyntheticTelemetry({
-        motor_id: 'MTR-775-001',
-        device_id: 'esp32-node-001',
-        source: 'hardware',
-        sensors: { temperature_c: 31.5, current_a: 0.15, vibration_g_rms: 0.015 },
-        inference: {
-          status: 'PREDICTED',
-          health_status: 'healthy',
-          confidence: 0.99,
-          probabilities: { healthy: 0.99, warning: 0.01, critical: 0.0 },
-          model_version: 'ei-motoguard-v1.0.1',
-          inference_time_ms: 6,
-        },
-      })
-      injectSyntheticTelemetry({
-        motor_id: 'MTR-775-002',
-        device_id: 'sim-node-002',
-        source: 'simulator',
-        sensors: { temperature_c: 54.8, current_a: 3.25, vibration_g_rms: 0.125 },
-        inference: {
-          status: 'PREDICTED',
-          health_status: 'warning',
-          confidence: 0.88,
-          probabilities: { healthy: 0.08, warning: 0.88, critical: 0.04 },
-          model_version: 'ei-motoguard-v1.0.1',
-          inference_time_ms: 7,
-        },
-      })
-      injectSyntheticTelemetry({
-        motor_id: 'MTR-775-003',
-        device_id: 'sim-node-003',
-        source: 'simulator',
-        sensors: { temperature_c: 44.2, current_a: 4.45, vibration_g_rms: 0.865 },
-        inference: {
-          status: 'PREDICTED',
-          health_status: 'critical',
-          confidence: 0.93,
-          probabilities: { healthy: 0.01, warning: 0.06, critical: 0.93 },
-          model_version: 'ei-motoguard-v1.0.1',
-          inference_time_ms: 8,
-        },
-      })
-    }
-  }, [motorList.length, injectSyntheticTelemetry])
+  }, [currentUser, fetchAlerts, refreshMotors])
 
   // Count active critical alerts and assigned tickets
   const criticalAlertsCount = useMemo(() => {
@@ -225,6 +164,8 @@ export default function App() {
     localStorage.removeItem('motorguard_auth_user')
     localStorage.removeItem('motorguard_auth_token')
     setCurrentUser(null)
+    setAlerts([])
+    clearTelemetry()
     setCurrentTab('overview')
   }
 
@@ -362,7 +303,9 @@ export default function App() {
             stats={stats}
             criticalAlertsCount={criticalAlertsCount}
             onNavigate={(tab) => {
-              if (tab === 'fleet' && !currentUser) {
+              // Marketing may describe workspaces, but every operational view
+              // requires an authenticated session.
+              if (!currentUser && tab !== 'landing') {
                 setIsLoginModalOpen(true)
               } else {
                 setCurrentTab(tab)
@@ -375,6 +318,8 @@ export default function App() {
             stats={stats}
             motors={motorList}
             alerts={alerts}
+            loadingAlerts={loadingAlerts}
+            alertFetchError={alertFetchError}
             onSelectMotorForAnalytics={handleSelectMotorForAnalytics}
             onInspectMotorDetail={(m) => setSelectedModalMotor(m)}
             onNavigate={setCurrentTab}
@@ -451,6 +396,9 @@ export default function App() {
             <AlertsView
               alerts={alerts}
               motors={motorList}
+              loadingAlerts={loadingAlerts}
+              alertFetchError={alertFetchError}
+              onRetryFetchAlerts={fetchAlerts}
               onAssignAlert={handleAssignAlert}
               onResolveAlert={handleResolveAlert}
               currentUser={currentUser}

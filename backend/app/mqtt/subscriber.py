@@ -175,6 +175,19 @@ class MQTTSubscriber:
             logger.debug("Validation errors: %s", exc.errors())
             return
 
+        # MG-F04: Bind topic device identity to payload device identity
+        topic_parts = [p for p in topic.strip("/").split("/") if p]
+        if len(topic_parts) >= 2 and topic_parts[-1] == "telemetry":
+            topic_device_id = topic_parts[-2]
+            if topic_device_id != validated.device_id:
+                self._error_count += 1
+                logger.warning(
+                    "Rejected spoofed MQTT telemetry: topic device '%s' does not match payload device '%s'",
+                    topic_device_id,
+                    validated.device_id,
+                )
+                return
+
         self._message_count += 1
         payload_dict = validated.model_dump()
 

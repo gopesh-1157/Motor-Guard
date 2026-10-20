@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     RATELIMIT_GENERAL_PER_MIN: int = Field(default=180, description="Max general API requests per minute per IP")
     TRUSTED_PROXIES: str = Field(default="127.0.0.1,::1,testclient", description="Comma-separated list of trusted reverse proxy IPs")
     GATEWAY_INGEST_SECRET: str = Field(default="motorguard-dev-ingest-key", description="Shared secret for hardware/bridge telemetry ingestion")
+    ENABLE_ESP32_SOFTAP_POLLER: bool = Field(
+        default=False,
+        description="Enable local ESP32 SoftAP 192.168.4.1 poller (bench testing only)",
+    )
 
     # App Metadata
     APP_VERSION: str = "1.0.0"

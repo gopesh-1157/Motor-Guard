@@ -143,3 +143,76 @@ def test_websocket_unauthorized_role_rejected():
     finally:
         app.dependency_overrides.clear()
 
+
+@pytest.mark.asyncio
+async def test_websocket_site_and_motor_authorization_isolation():
+    """
+    MG-F01 Regression Test:
+    Verify cross-site and cross-motor isolation on WebSocket broadcasts.
+    Operator at Site A (assigned to Motor A) must receive only Motor A telemetry.
+    Operator at Site B (assigned to Motor B) must receive only Motor B telemetry.
+    """
+    from unittest.mock import MagicMock, AsyncMock
+    from backend.app.schemas.user import UserOut
+
+    user_a = UserOut(
+        id="usr_site_a",
+        username="op_plant_a",
+        email="op_a@motorguard.local",
+        role="Operator",
+        assigned_sites=["SITE-PLANT-A"],
+        assigned_motors=["MTR-A-01"],
+        is_active=True,
+    )
+
+    user_b = UserOut(
+        id="usr_site_b",
+        username="op_plant_b",
+        email="op_b@motorguard.local",
+        role="Operator",
+        assigned_sites=["SITE-PLANT-B"],
+        assigned_motors=["MTR-B-01"],
+        is_active=True,
+    )
+
+    ws_mock_a = AsyncMock()
+    ws_mock_b = AsyncMock()
+
+    await ws_manager.connect(ws_mock_a, user=user_a)
+    await ws_manager.connect(ws_mock_b, user=user_b)
+
+    try:
+        # Event for Motor A at Site A
+        event_a = {
+            "type": "telemetry",
+            "data": {
+                "motor_id": "MTR-A-01",
+                "site_id": "SITE-PLANT-A",
+                "temperature": 45.0,
+            },
+        }
+
+        # Event for Motor B at Site B
+        event_b = {
+            "type": "telemetry",
+            "data": {
+                "motor_id": "MTR-B-01",
+                "site_id": "SITE-PLANT-B",
+                "temperature": 52.0,
+            },
+        }
+
+        # Broadcast event A
+        await ws_manager.broadcast(event_a)
+        assert ws_mock_a.send_text.call_count == 1
+        assert ws_mock_b.send_text.call_count == 0
+
+        # Broadcast event B
+        await ws_manager.broadcast(event_b)
+        assert ws_mock_a.send_text.call_count == 1  # Still 1
+        assert ws_mock_b.send_text.call_count == 1  # Now 1
+    finally:
+        await ws_manager.disconnect(ws_mock_a)
+        await ws_manager.disconnect(ws_mock_b)
+
+

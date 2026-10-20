@@ -1,4 +1,5 @@
 import type { FC } from 'react'
+import { useMemo } from 'react'
 import type { MotorState } from '../types'
 import { Sparkline } from './Sparkline'
 
@@ -64,55 +65,120 @@ export const MotorCard: FC<MotorCardProps> = ({ motor, onSelect }) => {
     critical: inference.health_status === 'critical' ? inference.confidence : 0,
   }
 
+  // Calculate ISO 10816-3 vibration severity marker percentage (0 to 100%)
+  const isoMarkerPct = useMemo(() => {
+    const v = sensors.vibration_g_rms
+    if (v == null || isNaN(v)) return 15
+    // Max scale 3.5 g for visualization
+    const clamped = Math.max(0, Math.min(3.5, v))
+    return Math.round((clamped / 3.5) * 100)
+  }, [sensors.vibration_g_rms])
+
+  const isoZoneLabel = useMemo(() => {
+    const v = sensors.vibration_g_rms
+    if (v == null) return 'N/A'
+    if (v < 0.6) return 'ZONE A: GOOD'
+    if (v < 1.2) return 'ZONE B: ACCEPTABLE'
+    if (v < 2.0) return 'ZONE C: ALERT'
+    return 'ZONE D: DAMAGE TRIP'
+  }, [sensors.vibration_g_rms])
+
   return (
     <div
-      className={`motor-card ${connectionStatus === 'offline' ? 'offline' : inference.health_status}`}
+      className={`motor-card scada-panel ${connectionStatus === 'offline' ? 'offline' : inference.health_status}`}
       onClick={() => onSelect(motor)}
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: 'pointer', padding: '16px 18px', gap: '12px' }}
     >
-      <div className="motor-card-header">
+      <div className="motor-card-header" style={{ alignItems: 'center' }}>
         <div className="motor-identity">
-          <div className="motor-id">{latest.motor_id}</div>
-          <div className="device-id">{latest.device_id}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="scada-equip-tag">{latest.motor_id}</span>
+            <span style={{ fontSize: '11px', fontFamily: 'var(--scada-mono-font)', color: 'var(--text-muted)' }}>
+              RS-775 DC 12V
+            </span>
+          </div>
+          <div className="device-id" style={{ marginTop: '2px', color: 'var(--text-muted)' }}>
+            NODE: {latest.device_id}
+          </div>
         </div>
 
         <div className="motor-badges">
           {isSimulator ? (
-            <span className="badge simulator">SIMULATOR</span>
+            <span className="badge simulator" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>
+              SIM NODE
+            </span>
           ) : (
-            <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.4)', color: 'var(--accent-primary)' }}>
-              HARDWARE
+            <span className="badge" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px', background: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.4)', color: 'var(--accent-primary)' }}>
+              ESP32 HW
             </span>
           )}
 
-          <span className={`badge ${connectionStatus}`}>
+          <span className={`badge ${connectionStatus}`} style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>
             ● {connectionStatus.toUpperCase()}
           </span>
 
-          <span className={`badge ${inference.health_status}`}>
+          <span className={`badge ${inference.health_status}`} style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>
             {inference.health_status.toUpperCase()}
           </span>
         </div>
       </div>
 
-      {/* Sensor Gauges */}
-      <div className="sensor-gauges">
-        <div className="gauge">
-          <div className="gauge-label">Temp</div>
-          <div className={`gauge-value ${tempDisplay.cssClass}`}>{tempDisplay.value}</div>
-          <div className="gauge-unit">{tempDisplay.unit}</div>
+      {/* Industrial Sensor Gauges with Tolerance Limit Banners */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+        <div className="scada-gauge-box">
+          <div className="scada-gauge-header">
+            <span>TEMP</span>
+            <span className="scada-gauge-limit" title="IEC Class F Thermal Limit: 70°C">HH: 70°C</span>
+          </div>
+          <div className={`scada-gauge-val ${tempDisplay.cssClass}`}>
+            {tempDisplay.value}
+            <span className="scada-gauge-unit">{tempDisplay.unit}</span>
+          </div>
         </div>
 
-        <div className="gauge">
-          <div className="gauge-label">Current</div>
-          <div className={`gauge-value ${currentDisplay.cssClass}`}>{currentDisplay.value}</div>
-          <div className="gauge-unit">{currentDisplay.unit}</div>
+        <div className="scada-gauge-box">
+          <div className="scada-gauge-header">
+            <span>CURRENT</span>
+            <span className="scada-gauge-limit" title="Overcurrent Trip Limit: 10.0A">HH: 10.0A</span>
+          </div>
+          <div className={`scada-gauge-val ${currentDisplay.cssClass}`}>
+            {currentDisplay.value}
+            <span className="scada-gauge-unit">{currentDisplay.unit}</span>
+          </div>
         </div>
 
-        <div className="gauge">
-          <div className="gauge-label">Vibration</div>
-          <div className={`gauge-value ${vibDisplay.cssClass}`}>{vibDisplay.value}</div>
-          <div className="gauge-unit">{vibDisplay.unit}</div>
+        <div className="scada-gauge-box">
+          <div className="scada-gauge-header">
+            <span>VIBRATION</span>
+            <span className="scada-gauge-limit" title="ISO 10816 Zone D Trip: 2.0g">HH: 2.0g</span>
+          </div>
+          <div className={`scada-gauge-val ${vibDisplay.cssClass}`}>
+            {vibDisplay.value}
+            <span className="scada-gauge-unit">{vibDisplay.unit}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ISO 10816-3 Vibration Severity Gauge Bar */}
+      <div className="iso-severity-scale" style={{ background: 'var(--bg-subtle)', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '9.5px', fontFamily: 'var(--scada-mono-font)' }}>
+          <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>ISO 10816-3 SEVERITY</span>
+          <span style={{ fontWeight: 700, color: inference.health_status === 'critical' ? '#EF4444' : inference.health_status === 'warning' ? '#F59E0B' : '#10B981' }}>
+            {isoZoneLabel}
+          </span>
+        </div>
+        <div className="iso-severity-bar" style={{ marginTop: '3px' }}>
+          <div className="iso-zone zone-a" title="Zone A: Good (New Commissioned)" />
+          <div className="iso-zone zone-b" title="Zone B: Acceptable (Long-term Continuous)" />
+          <div className="iso-zone zone-c" title="Zone C: Alert (Corrective Action Required)" />
+          <div className="iso-zone zone-d" title="Zone D: Damage Trip (Danger)" />
+          <div className="iso-marker" style={{ left: `${isoMarkerPct}%` }} />
+        </div>
+        <div className="iso-legend-row" style={{ marginTop: '2px' }}>
+          <span>A: &lt;0.6g</span>
+          <span>B: 0.6-1.2g</span>
+          <span>C: 1.2-2.0g</span>
+          <span>D: &gt;2.0g</span>
         </div>
       </div>
 
@@ -121,26 +187,26 @@ export const MotorCard: FC<MotorCardProps> = ({ motor, onSelect }) => {
         <div className="sparkline-container">
           <div>
             <Sparkline data={tempHistory} color="#f59e0b" label={`t-${latest.motor_id}`} />
-            <div className="sparkline-label">Temp (°C)</div>
+            <div className="sparkline-label" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '9px' }}>Temp (°C)</div>
           </div>
           <div>
             <Sparkline data={currentHistory} color="#3b82f6" label={`c-${latest.motor_id}`} />
-            <div className="sparkline-label">Current (A)</div>
+            <div className="sparkline-label" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '9px' }}>Current (A)</div>
           </div>
           <div>
             <Sparkline data={vibHistory} color="#a855f7" label={`v-${latest.motor_id}`} />
-            <div className="sparkline-label">Vibration (g)</div>
+            <div className="sparkline-label" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '9px' }}>Vibration (g)</div>
           </div>
         </div>
       </div>
 
       {/* TinyML Edge Inference Breakdown */}
-      <div className="inference-section">
-        <div className="inference-header">
-          <span className="inference-title">
-            TinyML Inference ({Math.round(inference.confidence * 100)}%)
+      <div className="inference-section" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <div className="inference-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
+          <span className="inference-title" style={{ fontSize: '10.5px' }}>
+            TinyML Classifier ({Math.round(inference.confidence * 100)}%)
           </span>
-          <span className="inference-model">
+          <span className="inference-model" style={{ fontSize: '10px' }}>
             {inference.model_version || 'v1.0.0'}
             {inference.inference_time_ms ? ` · ${inference.inference_time_ms}ms` : ''}
           </span>
@@ -148,49 +214,49 @@ export const MotorCard: FC<MotorCardProps> = ({ motor, onSelect }) => {
 
         <div className="probability-bars">
           <div className="prob-row">
-            <span className="prob-label healthy">Healthy</span>
+            <span className="prob-label healthy" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>Healthy</span>
             <div className="prob-bar-bg">
               <div
                 className="prob-bar-fill healthy"
                 style={{ width: `${Math.round(probs.healthy * 100)}%` }}
               />
             </div>
-            <span className="prob-value">{(probs.healthy * 100).toFixed(0)}%</span>
+            <span className="prob-value" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>{(probs.healthy * 100).toFixed(0)}%</span>
           </div>
 
           <div className="prob-row">
-            <span className="prob-label warning">Warning</span>
+            <span className="prob-label warning" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>Warning</span>
             <div className="prob-bar-bg">
               <div
                 className="prob-bar-fill warning"
                 style={{ width: `${Math.round(probs.warning * 100)}%` }}
               />
             </div>
-            <span className="prob-value">{(probs.warning * 100).toFixed(0)}%</span>
+            <span className="prob-value" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>{(probs.warning * 100).toFixed(0)}%</span>
           </div>
 
           <div className="prob-row">
-            <span className="prob-label critical">Critical</span>
+            <span className="prob-label critical" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>Critical</span>
             <div className="prob-bar-bg">
               <div
                 className="prob-bar-fill critical"
                 style={{ width: `${Math.round(probs.critical * 100)}%` }}
               />
             </div>
-            <span className="prob-value">{(probs.critical * 100).toFixed(0)}%</span>
+            <span className="prob-value" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>{(probs.critical * 100).toFixed(0)}%</span>
           </div>
         </div>
       </div>
 
       {/* Card Footer */}
-      <div className="motor-card-footer">
+      <div className="motor-card-footer" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>
         <div className="card-timestamp">
-          ⏱ {formatTimestamp(latest.timestamp)}
+          ⏱ SYNC {formatTimestamp(latest.timestamp)}
         </div>
         <div className="card-seq">
-          Seq #{latest.seq}
+          FRAME #{latest.seq}
           {diagnostics?.wifi_rssi_dbm !== undefined && diagnostics?.wifi_rssi_dbm !== null && (
-            <span> · {diagnostics.wifi_rssi_dbm} dBm</span>
+            <span> · RSSI {diagnostics.wifi_rssi_dbm} dBm</span>
           )}
         </div>
       </div>
