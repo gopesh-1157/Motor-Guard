@@ -203,10 +203,11 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.ENABLE_DOCS else None,
 )
 
-# 1. CORS middleware with explicit whitelist, methods, and headers
+# 1. CORS middleware with explicit whitelist, regex for Vercel preview/prod, methods, and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=r"^https://.*\.vercel\.app$|^https?://localhost(:\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
@@ -293,7 +294,12 @@ async def websocket_telemetry(websocket: WebSocket, token: Optional[str] = None)
     if origin:
         allowed = [o.rstrip("/") for o in settings.cors_origins_list]
         clean_origin = origin.rstrip("/")
-        is_allowed = clean_origin in allowed or (settings.ENVIRONMENT != "production" and "*" in allowed)
+        is_allowed = (
+            clean_origin in allowed
+            or clean_origin.endswith(".vercel.app")
+            or "localhost" in clean_origin
+            or (settings.ENVIRONMENT != "production" and "*" in allowed)
+        )
         if not is_allowed:
             logger.warning("Rejected WebSocket connection from unauthorized origin: %s", origin)
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized origin")
