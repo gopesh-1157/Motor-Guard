@@ -4,7 +4,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://YOUR_BACKEND_RENDER_URL.onrender.com/api/:path*"
+      "destination": "https://motor-guard.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",
