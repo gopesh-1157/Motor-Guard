@@ -604,12 +604,12 @@ export const LandingView: FC<LandingViewProps> = ({
             Role-Based Industrial Workspaces
           </h2>
           <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>
-            Dedicated portals engineered for plant operators, operations managers, and maintenance technicians.
+            Dedicated portals engineered for plant administrators, operations managers, and maintenance technicians.
           </p>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
-          {/* Operator Portal */}
+          {/* Fleet Portal */}
           <div
             onClick={() => onNavigate('fleet')}
             className="scada-panel"
@@ -639,7 +639,7 @@ export const LandingView: FC<LandingViewProps> = ({
                 <Sliders size={18} />
               </div>
               <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--brand-primary)', letterSpacing: '0.5px' }}>
-                OPERATOR VIEW
+                FLEET OVERVIEW
               </span>
             </div>
             <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>

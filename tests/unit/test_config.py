@@ -130,6 +130,7 @@ def test_mqtt_tls_validation_guardrails():
         Settings(
             ENVIRONMENT="development",
             MQTT_BROKER_HOST="test-cluster.s1.eu.hivemq.cloud",
+            MQTT_BROKER_PORT=1883,
             MQTT_USE_TLS=False,
         )
     assert "requires secure TLS" in str(exc_info.value)
@@ -143,6 +144,7 @@ def test_mqtt_tls_validation_guardrails():
             GATEWAY_INGEST_SECRET="prod-gateway-secret-1234",
             ADMIN_INITIAL_PASSWORD="SecureAdminPass2026!",
             MQTT_BROKER_HOST="198.51.100.25",
+            MQTT_BROKER_PORT=1883,
             MQTT_USE_TLS=False,
         )
     assert "Remote MQTT broker connections in production must have MQTT_USE_TLS=True" in str(exc_info.value)
@@ -212,7 +214,7 @@ async def test_admin_seeding_development_fallback_preserved():
     mock_coll.insert_one.return_value = AsyncMock(inserted_id="mock_admin_id")
 
     mock_db = AsyncMock()
-    mock_db.__getitem__.return_value = mock_coll
+    mock_db.__getitem__.side_effect = lambda name: mock_coll if name == "users" else AsyncMock()
     svc = UserService(mock_db)
 
     with patch.object(settings, "ENVIRONMENT", "development"):

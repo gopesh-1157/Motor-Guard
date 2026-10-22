@@ -66,6 +66,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable local ESP32 SoftAP 192.168.4.1 poller (bench testing only)",
     )
+    ALLOW_UNSCOPED_MANAGERS: bool = Field(
+        default=False,
+        description="Allow Managers without explicit site scope (strictly forbidden in production)",
+    )
 
     # App Metadata
     APP_VERSION: str = "1.0.0"
@@ -148,6 +152,8 @@ class Settings(BaseSettings):
                 raise ValueError("Remote MQTT broker connections in production must have MQTT_USE_TLS=True")
             if not self.cors_origins_list:
                 raise ValueError("Explicit CORS_ORIGINS must be configured in production (wildcard '*' is forbidden)")
+            if self.ALLOW_UNSCOPED_MANAGERS:
+                raise ValueError("ALLOW_UNSCOPED_MANAGERS=True is strictly forbidden in production")
             # Disable interactive docs in production by default
             self.ENABLE_DOCS = False
         return self

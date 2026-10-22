@@ -79,7 +79,7 @@ def seed_database():
         {
             "username": "operator_bob",
             "email": "bob.operator@factory.local",
-            "role": "Operator",
+            "role": "Technician",
             "password_hash": get_password_hash("operator123"),
             "assigned_sites": ["SITE-PLANT-A"],
             "assigned_motors": ["MTR-775-001", "MTR-775-002", "MTR-775-003"],
@@ -91,7 +91,7 @@ def seed_database():
 
     for u in demo_users:
         users_col.update_one({"username": u["username"]}, {"$set": u}, upsert=True)
-    print(f"[OK] Seeded {len(demo_users)} users (Admin, Manager, Technicians, Operator)")
+    print(f"[OK] Seeded {len(demo_users)} users (Admin, Manager, Technicians)")
 
     # 2. Seed Motors Master Records
     motors_col = db["motors"]

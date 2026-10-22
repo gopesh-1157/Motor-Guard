@@ -178,9 +178,9 @@ def override_services(mock_db):
             "admin": "Admin",
             "manager_alice": "Manager",
             "tech_dave": "Technician",
-            "operator_bob": "Operator",
+            "operator_bob": "Technician",
         }
-        role = role_map.get(uname, "Operator")
+        role = role_map.get(uname, "Technician")
         return UserInDB(
             id="mock-user-id",
             username=uname,
@@ -435,11 +435,11 @@ class TestAuditAndLifecycle:
 
 
 class TestRBACPermissions:
-    """Verifies that Operators cannot create or mutate motors/devices via direct API."""
+    """Verifies that Technicians cannot create or mutate motors/devices via direct API."""
 
     def test_operator_cannot_create_motor(self):
-        """Operators receive 403 Forbidden when calling POST /api/v1/motors."""
-        headers = auth_header("operator_bob", "Operator")
+        """Technicians receive 403 Forbidden when calling POST /api/v1/motors."""
+        headers = auth_header("tech_dave", "Technician")
         payload = {
             "motor_id": "MTR-FORBIDDEN",
             "name": "Unauthorized Motor",
@@ -450,7 +450,7 @@ class TestRBACPermissions:
         assert "Operation requires role" in res.json()["detail"]
 
     def test_operator_cannot_enroll_device(self):
-        """Operators receive 403 Forbidden when calling POST /api/v1/devices/enroll."""
-        headers = auth_header("operator_bob", "Operator")
+        """Technicians receive 403 Forbidden when calling POST /api/v1/devices/enroll."""
+        headers = auth_header("tech_dave", "Technician")
         res = client.post("/api/v1/devices/enroll", json={"device_id": "esp32-hacked"}, headers=headers)
         assert res.status_code == 403

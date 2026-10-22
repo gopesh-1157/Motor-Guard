@@ -90,3 +90,8 @@ Desktop.ini
 *.bak
 *backup*
 scratch/
+
+# --- Media & Screen Recordings ---
+*.mp4
+*.webm
+

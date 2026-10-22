@@ -68,7 +68,11 @@ def mock_db_env():
                 for d in store.values():
                     match = True
                     for k, v in query.items():
-                        if k == "state" and isinstance(v, dict) and "$in" in v:
+                        if k == "$or" and isinstance(v, list):
+                            if not any(all(d.get(ck) == cv for ck, cv in cond.items()) for cond in v):
+                                match = False
+                                break
+                        elif k == "state" and isinstance(v, dict) and "$in" in v:
                             if d.get("state") not in v["$in"]:
                                 match = False
                                 break
@@ -173,13 +177,21 @@ def mock_db_env():
     # Seed users directly in mock store
     users_col = get_collection("users")
     for u in [
-        {"username": "admin_test", "role": "Admin", "email": "admin@test.local", "password_hash": "mockhash", "is_active": True, "created_at": now},
-        {"username": "manager_test", "role": "Manager", "email": "manager@test.local", "password_hash": "mockhash", "is_active": True, "created_at": now},
-        {"username": "tech_dave_test", "role": "Technician", "email": "dave@test.local", "password_hash": "mockhash", "is_active": True, "created_at": now},
-        {"username": "tech_sara_test", "role": "Technician", "email": "sara@test.local", "password_hash": "mockhash", "is_active": True, "created_at": now},
-        {"username": "operator_test", "role": "Operator", "email": "op@test.local", "password_hash": "mockhash", "is_active": True, "created_at": now},
+        {"username": "admin_test", "role": "Admin", "email": "admin@test.local", "password_hash": "mockhash", "is_active": True, "assigned_sites": ["SITE-01"], "assigned_motors": [], "created_at": now},
+        {"username": "manager_test", "role": "Manager", "email": "manager@test.local", "password_hash": "mockhash", "is_active": True, "assigned_sites": ["SITE-01"], "assigned_motors": [], "created_at": now},
+        {"username": "tech_dave_test", "role": "Technician", "email": "dave@test.local", "password_hash": "mockhash", "is_active": True, "assigned_sites": ["SITE-01"], "assigned_motors": [], "created_at": now},
+        {"username": "tech_sara_test", "role": "Technician", "email": "sara@test.local", "password_hash": "mockhash", "is_active": True, "assigned_sites": ["SITE-01"], "assigned_motors": [], "created_at": now},
     ]:
         users_col._store[u["username"]] = dict(u)
+
+    # Seed motors directly in mock store
+    motors_col = get_collection("motors")
+    motors_col._store["MTR-TEST-001"] = {
+        "motor_id": "MTR-TEST-001",
+        "name": "Test Motor",
+        "site_id": "SITE-01",
+        "is_active": True,
+    }
 
     # Seed alert directly in mock store
     alerts_col = get_collection("alerts")
@@ -221,7 +233,7 @@ class TestWorkOrdersWorkflowE2E:
         assert response.status_code == 401
 
     def test_operator_cannot_create_work_order(self, mock_db_env):
-        """Verify Operator cannot create work orders (403 Forbidden)."""
+        """Verify Technician (non-manager/admin) cannot create work orders (403 Forbidden)."""
         payload = {
             "motor_id": "MTR-TEST-001",
             "assigned_to_user_id": "tech_dave_test",
@@ -232,7 +244,7 @@ class TestWorkOrdersWorkflowE2E:
         response = client.post(
             "/api/v1/work-orders",
             json=payload,
-            headers=auth_header("operator_test", "Operator"),
+            headers=auth_header("tech_dave_test", "Technician"),
         )
         assert response.status_code == 403
 

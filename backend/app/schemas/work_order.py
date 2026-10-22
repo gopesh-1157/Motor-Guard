@@ -46,6 +46,7 @@ class WorkOrderOut(BaseModel):
     id: Optional[str] = None
     work_order_id: str
     motor_id: str
+    site_id: Optional[str] = None
     alert_id: Optional[str] = None
     assigned_to_user_id: str
     assigned_by_user_id: str

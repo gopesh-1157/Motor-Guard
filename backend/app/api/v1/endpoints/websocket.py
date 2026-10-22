@@ -68,8 +68,8 @@ class WebSocketManager:
         assigned_sites = metadata.get("assigned_sites", set())
         assigned_motors = metadata.get("assigned_motors", set())
 
-        # Admins and Managers with no explicit restriction have full fleet access
-        if role in ("Admin", "Manager") and not assigned_sites and not assigned_motors:
+        # Admin has fleet-wide visibility
+        if role == "Admin":
             return True
 
         # Extract event payload and attributes
@@ -80,17 +80,40 @@ class WebSocketManager:
         motor_id = payload.get("motor_id")
         site_id = payload.get("site_id")
 
-        # If user has explicit assigned motors, check motor scope
-        if assigned_motors and motor_id:
-            if motor_id not in assigned_motors:
+        if role == "Manager":
+            from backend.app.config import settings
+            allow_unscoped = getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False)
+            is_prod = settings.ENVIRONMENT.strip().lower() == "production"
+            if is_prod and not assigned_sites and not allow_unscoped:
                 return False
 
-        # If user has explicit assigned sites, check site scope
-        if assigned_sites and site_id:
-            if site_id not in assigned_sites:
-                return False
+            # If user has explicit assigned sites, check site scope
+            if assigned_sites:
+                if not site_id:
+                    # Never broadcast an alert fleet-wide merely because site_id is absent.
+                    # Withhold the event when site authorization cannot be established.
+                    return False
+                if site_id not in assigned_sites:
+                    return False
 
-        return True
+            # If manager has explicit assigned motors, check motor scope
+            if assigned_motors and motor_id:
+                if motor_id not in assigned_motors:
+                    return False
+
+            return True
+
+        if role == "Technician":
+            # Technician receives alerts assigned directly to them
+            if payload.get("assigned_to") == metadata.get("username"):
+                return True
+            # Or events for their explicitly authorized motors
+            if assigned_motors and motor_id and motor_id in assigned_motors:
+                return True
+            # Empty assignment list, unassigned motors, or missing asset scope -> fail closed
+            return False
+
+        return False
 
     async def broadcast(self, data: dict) -> None:
         """Broadcast a telemetry or alert event to authorized connected dashboard clients."""

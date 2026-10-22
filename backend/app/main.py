@@ -84,7 +84,7 @@ async def _ingest_and_broadcast(payload: dict) -> bool:
                 alerts = await alert_service.evaluate_telemetry_for_alerts(payload)
                 for alert in alerts:
                     alert_dict = alert.model_dump(mode="json")
-                    if payload.get("site_id"):
+                    if not alert_dict.get("site_id") and payload.get("site_id"):
                         alert_dict["site_id"] = payload.get("site_id")
                     await ws_manager.broadcast({
                         "type": "alert",
@@ -92,7 +92,7 @@ async def _ingest_and_broadcast(payload: dict) -> bool:
                     })
                 for resolved in alert_service.consume_auto_resolved_alerts():
                     resolved_dict = resolved.model_dump(mode="json")
-                    if payload.get("site_id"):
+                    if not resolved_dict.get("site_id") and payload.get("site_id"):
                         resolved_dict["site_id"] = payload.get("site_id")
                     await ws_manager.broadcast({
                         "type": "alert",
@@ -114,7 +114,12 @@ async def lifespan(app: FastAPI):
     # 1. Connect MongoDB
     await db_manager.connect_to_database()
 
-    # 2. Initialize database services and ensure indexes
+    # 2. Run safe database compatibility migrations
+    if db_manager.db is not None:
+        from backend.app.db.migrations import migrate_legacy_roles
+        await migrate_legacy_roles(db_manager.db)
+
+    # 3. Initialize database services and ensure indexes
     if db_manager.db is not None:
         ingestion_service = TelemetryIngestionService(db_manager.db)
         await ingestion_service.ensure_indexes()
@@ -174,12 +179,42 @@ async def lifespan(app: FastAPI):
     if getattr(settings, "ENABLE_ESP32_SOFTAP_POLLER", False) and settings.ENVIRONMENT != "test":
         poller_task = asyncio.create_task(_poll_esp32_ap_loop())
 
+    # 6. Managed background device offline detection loop
+    async def _offline_checker_loop():
+        if settings.ENVIRONMENT == "test":
+            return
+        while True:
+            try:
+                if alert_service is not None:
+                    offline_alerts = await alert_service.check_offline_devices()
+                    for o_alert in offline_alerts:
+                        o_dict = o_alert.model_dump(mode="json")
+                        await ws_manager.broadcast({
+                            "type": "alert",
+                            "data": o_dict,
+                        })
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("Error in offline detection loop: %s", e)
+            await asyncio.sleep(float(getattr(settings, "OFFLINE_CHECK_INTERVAL_SEC", 10.0)))
+
+    offline_task = None
+    if settings.ENVIRONMENT != "test":
+        offline_task = asyncio.create_task(_offline_checker_loop())
+
     yield
 
     # Shutdown tasks
     logger.info("Shutting down %s...", settings.APP_NAME)
     if poller_task and not poller_task.done():
         poller_task.cancel()
+    if offline_task and not offline_task.done():
+        offline_task.cancel()
+        try:
+            await offline_task
+        except asyncio.CancelledError:
+            pass
     if settings.ENVIRONMENT != "test":
         await mqtt_subscriber.stop()
     await db_manager.close_database_connection()
@@ -331,7 +366,7 @@ async def websocket_telemetry(websocket: WebSocket, token: Optional[str] = None)
         return
 
     from backend.app.core.auth import verify_token_user
-    user = await verify_token_user(auth_token, allowed_roles=["Admin", "Manager", "Technician", "Operator"])
+    user = await verify_token_user(auth_token, allowed_roles=["Admin", "Manager", "Technician"])
     if not user or not user.is_active:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid or inactive user credentials")
         return

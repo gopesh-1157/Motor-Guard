@@ -34,8 +34,6 @@ export const Header: FC<HeaderProps> = ({
         return 'role-badge-manager'
       case 'Technician':
         return 'role-badge-tech'
-      case 'Operator':
-        return 'role-badge-operator'
       default:
         return 'role-badge-guest'
     }
@@ -49,8 +47,6 @@ export const Header: FC<HeaderProps> = ({
         return '👔'
       case 'Technician':
         return '🔧'
-      case 'Operator':
-        return '🏭'
       default:
         return '🔒'
     }

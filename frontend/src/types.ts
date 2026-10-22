@@ -12,13 +12,26 @@ export type NavigationTab =
   | 'devices'
   | 'reports'
   | 'settings'
+  | 'users'
   | 'motors' // alias for fleet
   | 'twin' // 3D digital twin
   | 'landing' // legacy alias for overview
   | 'manager' // legacy alias for alerts
   | 'technician' // legacy alias for maintenance
 
-export type UserRole = 'Admin' | 'Manager' | 'Technician' | 'Operator'
+export type UserRole = 'Admin' | 'Manager' | 'Technician'
+
+export interface ManagedUser {
+  id: string
+  username: string
+  email: string
+  role: UserRole
+  is_active: boolean
+  assigned_sites: string[]
+  assigned_motors: string[]
+  created_at?: string
+  last_login_at?: string | null
+}
 
 export type ChartMetric = 'temperature' | 'current' | 'vibration' | 'fft_spectrum'
 export type ChartType = 'line' | 'area' | 'step' | 'bar' | 'scatter' | 'histogram' | 'threshold'
@@ -314,6 +327,27 @@ export interface AlertItem {
   resolved_at?: string | null
   resolved_by?: string | null
   resolution_notes?: string | null
+  site_id?: string | null
+  category?: 'SAFETY_THRESHOLD' | 'ML_INFERENCE' | 'SENSOR_DIAGNOSTIC' | 'CONNECTIVITY' | null
+  configuration_snapshot?: Record<string, unknown> | null
+  last_observed_at?: string | null
+  source?: string | null
+  reopened_at?: string | null
+  reopened_by?: string | null
+  reopen_reason?: string | null
+  ml_health_status?: 'healthy' | 'warning' | 'critical' | null
+  ml_confidence?: number | null
+}
+
+export interface TechnicianUser {
+  id: string
+  username: string
+  email: string
+  role: string
+  is_active: boolean
+  assigned_sites?: string[]
+  assigned_motors?: string[]
+  created_at?: string
 }
 
 export interface UserProfile {
@@ -324,6 +358,8 @@ export interface UserProfile {
   title?: string
   avatar?: string
   token?: string
+  assigned_sites?: string[]
+  assigned_motors?: string[]
 }
 
 export type WorkOrderStatus = 'Assigned' | 'Accepted' | 'In Progress' | 'Resolved' | 'Rejected'

@@ -199,12 +199,12 @@ class TestRBACBoundaries:
     """Verify strict role-based access control separation."""
 
     def test_operator_cannot_register_user(self):
-        """Operator role cannot register new users (Requires Admin)."""
+        """Technician role cannot register new users (Requires Admin)."""
         mock_operator = UserOut(
             id="usr-op",
-            username="operator_bob",
+            username="tech_bob",
             email="bob@factory.local",
-            role="Operator",
+            role="Technician",
             assigned_sites=["SITE-MAIN"],
             assigned_motors=[],
             is_active=True,
@@ -225,12 +225,12 @@ class TestRBACBoundaries:
             app.dependency_overrides.clear()
 
     def test_operator_cannot_inject_simulator_fault(self):
-        """Operator role cannot inject simulator faults (Requires Admin or Manager)."""
+        """Technician role cannot inject simulator faults (Requires Admin or Manager)."""
         mock_operator = UserOut(
             id="usr-op",
-            username="operator_bob",
+            username="tech_bob",
             email="bob@factory.local",
-            role="Operator",
+            role="Technician",
             assigned_sites=["SITE-MAIN"],
             assigned_motors=[],
             is_active=True,

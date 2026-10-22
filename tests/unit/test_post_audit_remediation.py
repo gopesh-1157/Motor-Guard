@@ -263,7 +263,7 @@ class TestF05WebSocketOriginValidation:
 
     def test_websocket_valid_origin_accepted(self):
         client = TestClient(app)
-        token = create_access_token(data={"sub": "operator_bob", "role": "Operator"})
+        token = create_access_token(data={"sub": "operator_bob", "role": "Technician"})
         allowed_origin = settings.cors_origins_list[0]
 
         with client.websocket_connect(
@@ -274,7 +274,7 @@ class TestF05WebSocketOriginValidation:
 
     def test_websocket_unauthorized_origin_rejected(self):
         client = TestClient(app)
-        token = create_access_token(data={"sub": "operator_bob", "role": "Operator"})
+        token = create_access_token(data={"sub": "operator_bob", "role": "Technician"})
 
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect(

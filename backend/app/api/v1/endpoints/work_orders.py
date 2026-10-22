@@ -74,6 +74,7 @@ async def get_audit_logs(
 ):
     """View tamper-resistant audit logs (Requires Admin or Manager)."""
     return await service.list_audit_logs(
+        current_user=current_user,
         entity_type=entity_type,
         entity_id=entity_id,
         limit=limit,

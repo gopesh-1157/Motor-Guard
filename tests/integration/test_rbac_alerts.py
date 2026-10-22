@@ -93,9 +93,9 @@ class TestJWTAuthentication:
         """GET /api/v1/auth/me returns profile for valid JWT bearer token."""
         mock_user = UserInDB(
             id="65f123456789abcdef012345",
-            username="operator_bob",
+            username="tech_bob",
             email="bob@factory.local",
-            role="Operator",
+            role="Technician",
             password_hash="hash",
             created_at=datetime.now(timezone.utc),
             is_active=True,
@@ -108,15 +108,15 @@ class TestJWTAuthentication:
         app.dependency_overrides[get_user_service] = lambda: mock_user_service
 
         try:
-            token = create_access_token({"sub": "operator_bob", "role": "Operator"})
+            token = create_access_token({"sub": "tech_bob", "role": "Technician"})
             response = client.get(
                 "/api/v1/auth/me",
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert response.status_code == 200
             data = response.json()
-            assert data["username"] == "operator_bob"
-            assert data["role"] == "Operator"
+            assert data["username"] == "tech_bob"
+            assert data["role"] == "Technician"
         finally:
             app.dependency_overrides.clear()
 
@@ -127,12 +127,12 @@ class TestRoleBasedAccessControl:
     """Verifies server-enforced role hierarchy on sensitive administrative & maintenance operations."""
 
     def test_operator_forbidden_from_user_management(self):
-        """Operator cannot access Admin-only user management endpoint."""
+        """Technician cannot access Admin-only user management endpoint."""
         mock_user = UserInDB(
             id="65f123456789abcdef012345",
-            username="operator_jim",
+            username="tech_jim",
             email="jim@factory.local",
-            role="Operator",
+            role="Technician",
             password_hash="hash",
             created_at=datetime.now(timezone.utc),
             is_active=True,
@@ -143,7 +143,7 @@ class TestRoleBasedAccessControl:
         app.dependency_overrides[get_user_service] = lambda: mock_user_service
 
         try:
-            token = create_access_token({"sub": "operator_jim", "role": "Operator"})
+            token = create_access_token({"sub": "tech_jim", "role": "Technician"})
             response = client.get(
                 "/api/v1/auth/users",
                 headers={"Authorization": f"Bearer {token}"},
@@ -154,12 +154,12 @@ class TestRoleBasedAccessControl:
             app.dependency_overrides.clear()
 
     def test_operator_forbidden_from_creating_maintenance_records(self):
-        """Operator cannot create maintenance records (Requires Technician or Admin)."""
+        """Manager cannot create maintenance records directly (Requires Technician or Admin)."""
         mock_user = UserInDB(
             id="65f123456789abcdef012345",
-            username="operator_jim",
+            username="manager_jim",
             email="jim@factory.local",
-            role="Operator",
+            role="Manager",
             password_hash="hash",
             created_at=datetime.now(timezone.utc),
             is_active=True,
@@ -170,7 +170,7 @@ class TestRoleBasedAccessControl:
         app.dependency_overrides[get_user_service] = lambda: mock_user_service
 
         try:
-            token = create_access_token({"sub": "operator_jim", "role": "Operator"})
+            token = create_access_token({"sub": "manager_jim", "role": "Manager"})
             maintenance_payload = {
                 "motor_id": "MTR-775-001",
                 "service_type": "INSPECTION",

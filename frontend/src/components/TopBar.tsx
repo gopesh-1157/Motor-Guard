@@ -204,7 +204,7 @@ export const TopBar: FC<TopBarProps> = ({
             wsConnected
               ? 'WebSocket OT telemetry feed active (Authenticated Live Bus)'
               : !currentUser
-              ? 'Gateway secured — Sign In as Operator or Manager to stream live bus'
+              ? 'Gateway secured — Sign In as Technician or Manager to stream live bus'
               : 'Gateway feed disconnected'
           }
         >
@@ -235,7 +235,7 @@ export const TopBar: FC<TopBarProps> = ({
             style={{ padding: '5px 12px', fontSize: '11px', fontFamily: 'var(--scada-mono-font)' }}
             onClick={onOpenLogin}
           >
-            🔒 OPERATOR SIGN IN
+            🔒 AUTHORIZED SIGN IN
           </button>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

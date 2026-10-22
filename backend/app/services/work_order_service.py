@@ -31,12 +31,14 @@ class WorkOrderService:
         self.maintenance_col = db["maintenance_records"]
         self.audit_col = db["audit_logs"]
         self.users_col = db["users"]
+        self.motors_col = db["motors"]
 
     async def ensure_indexes(self):
         """Create high-performance indexes for work orders and audit logs."""
         await self.collection.create_index([("work_order_id", 1)], unique=True)
         await self.collection.create_index([("assigned_to_user_id", 1), ("status", 1)])
         await self.collection.create_index([("motor_id", 1)])
+        await self.collection.create_index([("site_id", 1)])
         await self.collection.create_index([("alert_id", 1)])
         await self.collection.create_index([("created_at", -1)])
 
@@ -51,6 +53,7 @@ class WorkOrderService:
         entity_type: str,
         entity_id: str,
         details: Optional[Dict[str, Any]] = None,
+        site_id: Optional[str] = None,
     ):
         """Append an immutable audit entry."""
         now = datetime.now(timezone.utc)
@@ -60,6 +63,7 @@ class WorkOrderService:
             "action": action,
             "entity_type": entity_type,
             "entity_id": entity_id,
+            "site_id": site_id,
             "details": details or {},
             "timestamp": now,
         }
@@ -68,19 +72,57 @@ class WorkOrderService:
     async def create_work_order(
         self, data: WorkOrderCreate, current_user: UserOut
     ) -> WorkOrderOut:
-        """Admin or Manager creates and assigns a work order to a technician."""
-        # 1. Validate that assigned technician exists and has Technician role
+        """Admin or Manager creates and assigns a work order to an eligible technician."""
+        # 1. Validate motor exists
+        motor = await self.motors_col.find_one({"motor_id": data.motor_id})
+        if not motor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Motor '{data.motor_id}' not found",
+            )
+        motor_site = motor.get("site_id")
+
+        # 2. Enforce Manager site scoping
+        if current_user.role == "Manager":
+            from backend.app.config import settings
+            if not current_user.assigned_sites:
+                if settings.ENVIRONMENT.lower() == "production" or not getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Unscoped Manager cannot create work orders. Explicit site assignment required.",
+                    )
+            elif motor_site and motor_site not in current_user.assigned_sites:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Manager is not authorized to create work orders for motor at site '{motor_site}'. Authorized sites: {current_user.assigned_sites}",
+                )
+
+        # 3. Validate that assigned technician exists, is active, and has Technician role
         assigned_user = await self.users_col.find_one({"username": data.assigned_to_user_id})
         if not assigned_user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Technician user '{data.assigned_to_user_id}' not found",
             )
-        if assigned_user.get("role") not in ["Technician", "Admin"]:
+        if not assigned_user.get("is_active", True):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"User '{data.assigned_to_user_id}' has role '{assigned_user.get('role')}', not 'Technician'",
+                detail=f"Cannot assign work order to deactivated technician '{data.assigned_to_user_id}'",
             )
+        if assigned_user.get("role") != "Technician":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"User '{data.assigned_to_user_id}' has role '{assigned_user.get('role')}', only 'Technician' accounts can receive work orders",
+            )
+
+        # 4. Check technician site alignment if specified
+        if current_user.role == "Manager" and current_user.assigned_sites:
+            tech_sites = assigned_user.get("assigned_sites") or []
+            if tech_sites and motor_site and motor_site not in tech_sites:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Technician '{data.assigned_to_user_id}' is not assigned to site '{motor_site}'",
+                )
 
         now = datetime.now(timezone.utc)
         date_str = now.strftime("%Y%m%d")
@@ -90,6 +132,7 @@ class WorkOrderService:
         wo_doc = {
             "work_order_id": wo_id,
             "motor_id": data.motor_id,
+            "site_id": motor_site,
             "alert_id": data.alert_id,
             "assigned_to_user_id": data.assigned_to_user_id,
             "assigned_by_user_id": current_user.username,
@@ -137,8 +180,10 @@ class WorkOrderService:
             action="CREATE_WORK_ORDER",
             entity_type="work_order",
             entity_id=wo_id,
+            site_id=motor_site,
             details={
                 "motor_id": data.motor_id,
+                "site_id": motor_site,
                 "alert_id": data.alert_id,
                 "assigned_to": data.assigned_to_user_id,
                 "priority": data.priority,
@@ -155,12 +200,19 @@ class WorkOrderService:
         motor_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[WorkOrderOut]:
-        """List work orders with role-based isolation."""
+        """List work orders with role-based and site isolation."""
         query: Dict[str, Any] = {}
 
         # STRICT ISOLATION: Technicians can ONLY view their own assigned work orders
         if current_user.role == "Technician":
             query["assigned_to_user_id"] = current_user.username
+        elif current_user.role == "Manager":
+            from backend.app.config import settings
+            if not current_user.assigned_sites:
+                if settings.ENVIRONMENT.lower() == "production" or not getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False):
+                    return []
+            else:
+                query["site_id"] = {"$in": current_user.assigned_sites}
 
         if status_filter:
             query["status"] = status_filter
@@ -195,6 +247,21 @@ class WorkOrderService:
                 detail="Access denied: You can only view work orders assigned to your account",
             )
 
+        # STRICT ISOLATION: Manager cannot access work orders outside authorized site scope
+        if current_user.role == "Manager":
+            from backend.app.config import settings
+            if not current_user.assigned_sites:
+                if settings.ENVIRONMENT.lower() == "production" or not getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Access denied: Unscoped Manager cannot access work orders",
+                    )
+            elif doc.get("site_id") and doc.get("site_id") not in current_user.assigned_sites:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: Work order is outside your authorized site scope",
+                )
+
         doc.pop("_id", None)
         return WorkOrderOut(**doc)
 
@@ -203,6 +270,16 @@ class WorkOrderService:
     ) -> WorkOrderOut:
         """Technician accepts an assigned work order (Assigned -> Accepted)."""
         doc = await self.get_work_order(work_order_id, current_user)
+        if current_user.role == "Technician" and doc.assigned_to_user_id != current_user.username:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Only the assigned technician can accept this work order",
+            )
+        if current_user.role == "Manager":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Managers cannot accept technician work orders",
+            )
         if doc.status != "Assigned":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -226,6 +303,7 @@ class WorkOrderService:
             action="ACCEPT_WORK_ORDER",
             entity_type="work_order",
             entity_id=work_order_id,
+            site_id=doc.site_id,
             details={"notes": notes},
         )
         updated.pop("_id", None)
@@ -236,6 +314,16 @@ class WorkOrderService:
     ) -> WorkOrderOut:
         """Technician starts work (Accepted / Assigned -> In Progress)."""
         doc = await self.get_work_order(work_order_id, current_user)
+        if current_user.role == "Technician" and doc.assigned_to_user_id != current_user.username:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Only the assigned technician can start this work order",
+            )
+        if current_user.role == "Manager":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Managers cannot start technician work orders",
+            )
         if doc.status not in ["Assigned", "Accepted"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -259,6 +347,7 @@ class WorkOrderService:
             action="START_WORK_ORDER",
             entity_type="work_order",
             entity_id=work_order_id,
+            site_id=doc.site_id,
             details={"notes": notes},
         )
         updated.pop("_id", None)
@@ -267,12 +356,44 @@ class WorkOrderService:
     async def resolve_work_order(
         self, work_order_id: str, data: WorkOrderResolveRequest, current_user: UserOut
     ) -> WorkOrderOut:
-        """Technician marks work resolved with diagnosis, parts replaced, and notes."""
+        """Technician marks work resolved with required diagnosis, actions taken, parts replaced, and notes."""
         doc = await self.get_work_order(work_order_id, current_user)
+        if current_user.role == "Technician" and doc.assigned_to_user_id != current_user.username:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Only the assigned technician can resolve this work order",
+            )
+        if current_user.role == "Manager":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Managers cannot resolve technician work orders",
+            )
         if doc.status not in ["In Progress", "Accepted"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot resolve work order in '{doc.status}' state (must be 'In Progress')",
+            )
+
+        # Backend validation of required maintenance fields
+        if not data.diagnosis or not data.diagnosis.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Root cause diagnosis is required to resolve work order",
+            )
+        if not data.actions_taken or not data.actions_taken.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Corrective actions summary is required to resolve work order",
+            )
+        if not data.resolution_notes or not data.resolution_notes.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Resolution notes are required to resolve work order",
+            )
+        if data.downtime_minutes is None or data.downtime_minutes < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Downtime minutes cannot be negative",
             )
 
         now = datetime.now(timezone.utc)
@@ -282,11 +403,11 @@ class WorkOrderService:
                 "$set": {
                     "status": "Resolved",
                     "resolved_at": now,
-                    "diagnosis": data.diagnosis,
-                    "actions_taken": data.actions_taken,
+                    "diagnosis": data.diagnosis.strip(),
+                    "actions_taken": data.actions_taken.strip(),
                     "parts_replaced": data.parts_replaced,
                     "downtime_minutes": data.downtime_minutes,
-                    "resolution_notes": data.resolution_notes,
+                    "resolution_notes": data.resolution_notes.strip(),
                     "updated_at": now,
                 }
             },
@@ -302,7 +423,7 @@ class WorkOrderService:
                         "state": "RESOLVED",
                         "resolved_at": now,
                         "resolved_by": current_user.username,
-                        "resolution_notes": data.resolution_notes,
+                        "resolution_notes": data.resolution_notes.strip(),
                     }
                 },
             )
@@ -311,10 +432,11 @@ class WorkOrderService:
         maint_doc = {
             "record_id": f"REC-{uuid.uuid4().hex[:8].upper()}",
             "motor_id": doc.motor_id,
+            "site_id": doc.site_id,
             "work_order_id": work_order_id,
             "service_type": "REPAIR",
-            "summary": data.actions_taken[:200],
-            "details": f"Diagnosis: {data.diagnosis}\nActions: {data.actions_taken}\nNotes: {data.resolution_notes}",
+            "summary": data.actions_taken.strip()[:200],
+            "details": f"Diagnosis: {data.diagnosis.strip()}\nActions: {data.actions_taken.strip()}\nNotes: {data.resolution_notes.strip()}",
             "parts_replaced": data.parts_replaced,
             "downtime_minutes": data.downtime_minutes,
             "technician_id": current_user.id or current_user.username,
@@ -329,8 +451,9 @@ class WorkOrderService:
             action="RESOLVE_WORK_ORDER",
             entity_type="work_order",
             entity_id=work_order_id,
+            site_id=doc.site_id,
             details={
-                "diagnosis": data.diagnosis,
+                "diagnosis": data.diagnosis.strip(),
                 "parts_replaced": data.parts_replaced,
                 "downtime_minutes": data.downtime_minutes,
             },
@@ -344,10 +467,25 @@ class WorkOrderService:
     ) -> WorkOrderOut:
         """Technician rejects an assignment with reason."""
         doc = await self.get_work_order(work_order_id, current_user)
+        if current_user.role == "Technician" and doc.assigned_to_user_id != current_user.username:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Only the assigned technician can reject this work order",
+            )
+        if current_user.role == "Manager":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Managers cannot reject technician work orders",
+            )
         if doc.status != "Assigned":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot reject work order in '{doc.status}' state (must be 'Assigned')",
+            )
+        if not data.rejection_reason or not data.rejection_reason.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Rejection reason is required",
             )
 
         now = datetime.now(timezone.utc)
@@ -357,7 +495,7 @@ class WorkOrderService:
                 "$set": {
                     "status": "Rejected",
                     "rejected_at": now,
-                    "rejection_reason": data.rejection_reason,
+                    "rejection_reason": data.rejection_reason.strip(),
                     "updated_at": now,
                 }
             },
@@ -368,19 +506,57 @@ class WorkOrderService:
             action="REJECT_WORK_ORDER",
             entity_type="work_order",
             entity_id=work_order_id,
-            details={"rejection_reason": data.rejection_reason},
+            site_id=doc.site_id,
+            details={"rejection_reason": data.rejection_reason.strip()},
         )
         updated.pop("_id", None)
         return WorkOrderOut(**updated)
 
     async def list_audit_logs(
         self,
+        current_user: UserOut,
         entity_type: Optional[str] = None,
         entity_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[AuditLogOut]:
-        """Fetch immutable audit logs."""
+        """Fetch immutable audit logs with role-based restrictions."""
+        if current_user.role == "Technician":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Technicians are not authorized to view audit logs",
+            )
+
         query: Dict[str, Any] = {}
+
+        # Limit Managers to authorized operational events and their site scope
+        if current_user.role == "Manager":
+            from backend.app.config import settings
+            if not current_user.assigned_sites:
+                if settings.ENVIRONMENT.lower() == "production" or not getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False):
+                    return []
+
+            OPERATIONAL_ACTIONS = [
+                "CREATE_MOTOR",
+                "UPDATE_CONFIG",
+                "DISABLE_MOTOR",
+                "ENROLL_DEVICE",
+                "ASSIGN_DEVICE",
+                "UNASSIGN_DEVICE",
+                "CREATE_WORK_ORDER",
+                "ACCEPT_WORK_ORDER",
+                "START_WORK_ORDER",
+                "RESOLVE_WORK_ORDER",
+                "REJECT_WORK_ORDER",
+            ]
+            query["action"] = {"$in": OPERATIONAL_ACTIONS}
+
+            if current_user.assigned_sites:
+                query["$or"] = [
+                    {"details.site": {"$in": current_user.assigned_sites}},
+                    {"details.site_id": {"$in": current_user.assigned_sites}},
+                    {"site_id": {"$in": current_user.assigned_sites}},
+                ]
+
         if entity_type:
             query["entity_type"] = entity_type
         if entity_id:

@@ -27,7 +27,7 @@ def test_websocket_invalid_token_rejected():
 def test_websocket_authenticated_connection():
     """Verify authenticated WebSocket client connects, sends messages, and cleans up on exit."""
     client = TestClient(app)
-    token = create_access_token(data={"sub": "operator_bob", "role": "Operator"})
+    token = create_access_token(data={"sub": "technician_bob", "role": "Technician"})
 
     with client.websocket_connect(f"/ws/telemetry?token={token}") as websocket:
         assert ws_manager.connection_count >= 1
@@ -41,14 +41,15 @@ def test_websocket_authenticated_connection():
 async def test_websocket_broadcast_delivery():
     """Verify ws_manager.broadcast delivers payload to connected authenticated clients."""
     client = TestClient(app)
-    token = create_access_token(data={"sub": "operator_bob", "role": "Operator"})
+    token = create_access_token(data={"sub": "technician_bob", "role": "Technician"})
 
     with client.websocket_connect(f"/ws/telemetry?token={token}") as websocket:
-        # Simulate broadcast
+        # Simulate broadcast with direct assignment to technician_bob
         test_payload = {
             "motor_id": "MTR-TEST",
             "source": "simulator",
             "status": "healthy",
+            "assigned_to": "technician_bob",
         }
         await ws_manager.broadcast(test_payload)
 
@@ -87,7 +88,7 @@ def test_websocket_inactive_user_rejected():
     from datetime import datetime, timezone
 
     client = TestClient(app)
-    token = create_access_token(data={"sub": "locked_user", "role": "Operator"})
+    token = create_access_token(data={"sub": "locked_user", "role": "Technician"})
 
     mock_svc = AsyncMock()
     mock_svc.get_by_username.return_value = UserInDB(
@@ -95,7 +96,7 @@ def test_websocket_inactive_user_rejected():
         username="locked_user",
         email="locked@motorguard.local",
         password_hash="...",
-        role="Operator",
+        role="Technician",
         assigned_sites=[],
         assigned_motors=[],
         is_active=False,  # DEACTIVATED
@@ -159,7 +160,7 @@ async def test_websocket_site_and_motor_authorization_isolation():
         id="usr_site_a",
         username="op_plant_a",
         email="op_a@motorguard.local",
-        role="Operator",
+        role="Technician",
         assigned_sites=["SITE-PLANT-A"],
         assigned_motors=["MTR-A-01"],
         is_active=True,
@@ -169,7 +170,7 @@ async def test_websocket_site_and_motor_authorization_isolation():
         id="usr_site_b",
         username="op_plant_b",
         email="op_b@motorguard.local",
-        role="Operator",
+        role="Technician",
         assigned_sites=["SITE-PLANT-B"],
         assigned_motors=["MTR-B-01"],
         is_active=True,

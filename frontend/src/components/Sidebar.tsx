@@ -8,6 +8,7 @@ import {
   Cpu,
   FileText,
   Settings,
+  Users,
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
@@ -49,26 +50,24 @@ export const Sidebar: FC<SidebarProps> = ({
     { key: 'live', label: 'Live Monitoring', icon: Activity },
     { key: 'analytics', label: 'Analytics', icon: LineChart },
     { key: 'alerts', label: 'Alerts & Events', icon: AlertTriangle, badge: criticalAlertCount },
-    { key: 'maintenance', label: 'Maintenance', icon: Wrench, badge: activeWorkOrderCount },
+    { key: 'maintenance', label: 'Work Orders', icon: Wrench, badge: activeWorkOrderCount },
     { key: 'devices', label: 'ESP32 Devices', icon: Cpu },
+    { key: 'users', label: 'User Management', icon: Users },
     { key: 'reports', label: 'Reports', icon: FileText },
     { key: 'settings', label: 'Settings', icon: Settings },
   ]
 
-  // Role-based visibility filtering
+  // Role-based visibility filtering (strictly exactly 3 roles)
   const visibleNavItems = navItems.filter((item) => {
     if (item.key === 'landing') return true
     if (!currentUser) return item.key === 'overview'
     const role = currentUser.role
     if (role === 'Admin') return true
     if (role === 'Manager') {
-      return ['overview', 'landing', 'fleet', 'live', 'analytics', 'alerts', 'reports'].includes(item.key)
+      return ['overview', 'landing', 'fleet', 'devices', 'alerts', 'maintenance', 'live', 'analytics', 'reports'].includes(item.key)
     }
     if (role === 'Technician') {
-      return ['overview', 'landing', 'maintenance', 'live', 'analytics'].includes(item.key)
-    }
-    if (role === 'Operator') {
-      return ['overview', 'landing', 'live'].includes(item.key)
+      return ['overview', 'landing', 'fleet', 'maintenance', 'live', 'analytics'].includes(item.key)
     }
     return item.key === 'overview'
   })

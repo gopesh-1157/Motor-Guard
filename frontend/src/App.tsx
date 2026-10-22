@@ -19,6 +19,7 @@ const TechnicianView = lazy(() => import('./components/TechnicianView').then((m)
 const DeviceNodesView = lazy(() => import('./components/DeviceNodesView').then((m) => ({ default: m.DeviceNodesView })))
 const ReportsView = lazy(() => import('./components/ReportsView').then((m) => ({ default: m.ReportsView })))
 const SettingsView = lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })))
+const UserManagementView = lazy(() => import('./components/UserManagementView').then((m) => ({ default: m.UserManagementView })))
 
 const ViewLoadingFallback = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '360px', color: 'var(--text-muted)' }}>
@@ -471,6 +472,18 @@ export default function App() {
         <ErrorBoundary fallbackTitle="Settings View Unavailable">
           <Suspense fallback={<ViewLoadingFallback />}>
             <SettingsView
+              currentUser={currentUser}
+              onOpenLogin={() => setIsLoginModalOpen(true)}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+
+      {/* 10. USER MANAGEMENT (Admin-Only) */}
+      {currentTab === 'users' && (
+        <ErrorBoundary fallbackTitle="User Management Unavailable">
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <UserManagementView
               currentUser={currentUser}
               onOpenLogin={() => setIsLoginModalOpen(true)}
             />

@@ -8,6 +8,7 @@ from backend.app.schemas.alert import (
     AlertOut,
     AlertState,
     AlertSeverity,
+    AlertCategory,
     AlertAcknowledgeRequest,
     AlertAssignRequest,
     AlertResolveRequest,
@@ -35,17 +36,29 @@ async def list_alerts(
     motor_id: Optional[str] = Query(None, description="Filter by motor ID"),
     state: Optional[AlertState] = Query(None, description="Filter by alert state"),
     severity: Optional[AlertSeverity] = Query(None, description="Filter by severity"),
+    category: Optional[AlertCategory] = Query(None, description="Filter by alert category"),
     limit: int = Query(50, ge=1, le=200),
     current_user: UserOut = Depends(get_current_active_user),
     alert_service: AlertService = Depends(get_alert_service),
 ):
-    """List motor alerts with optional filtering."""
+    """List motor alerts with role-based and object-level scoping."""
     return await alert_service.list_alerts(
         motor_id=motor_id,
         state=state,
         severity=severity,
+        category=category,
         limit=limit,
+        current_user=current_user,
     )
+
+
+@router.post("/check-offline", response_model=List[AlertOut])
+async def trigger_offline_check(
+    current_user: UserOut = Depends(require_roles("Admin", "Manager")),
+    alert_service: AlertService = Depends(get_alert_service),
+):
+    """Scan and generate offline alerts for devices that missed telemetry heartbeat."""
+    return await alert_service.check_offline_devices()
 
 
 @router.get("/{alert_id}", response_model=AlertOut)
@@ -54,8 +67,8 @@ async def get_alert_by_id(
     current_user: UserOut = Depends(get_current_active_user),
     alert_service: AlertService = Depends(get_alert_service),
 ):
-    """Retrieve details for a single alert record."""
-    alert = await alert_service.get_alert(alert_id)
+    """Retrieve details for a single alert record with non-disclosing authorization."""
+    alert = await alert_service.get_alert(alert_id, current_user=current_user)
     if not alert:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -75,11 +88,13 @@ async def acknowledge_alert(
     alert = await alert_service.acknowledge_alert(
         alert_id=alert_id,
         acknowledged_by=current_user.username,
+        current_user=current_user,
+        notes=payload.notes,
     )
     if not alert:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Alert '{alert_id}' not found or already acknowledged/resolved",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Alert '{alert_id}' not found or not in ACTIVE state",
         )
     return alert
 
@@ -98,6 +113,7 @@ async def assign_alert(
         assigned_by=current_user.username,
         priority=payload.priority,
         instructions=payload.instructions,
+        current_user=current_user,
     )
     if not alert:
         raise HTTPException(
@@ -119,10 +135,11 @@ async def resolve_alert(
         alert_id=alert_id,
         resolved_by=current_user.username,
         resolution_notes=payload.resolution_notes,
+        current_user=current_user,
     )
     if not alert:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Alert '{alert_id}' not found or already resolved",
         )
     return alert
@@ -140,10 +157,11 @@ async def reopen_alert(
         alert_id=alert_id,
         reopened_by=current_user.username,
         reason=payload.reason,
+        current_user=current_user,
     )
     if not alert:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Alert '{alert_id}' not found or not currently resolved",
         )
     return alert

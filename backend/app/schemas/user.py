@@ -7,16 +7,17 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 from backend.app.core.security import validate_password_strength
 
-UserRole = Literal["Admin", "Manager", "Technician", "Operator"]
+UserRole = Literal["Admin", "Manager", "Technician"]
 
 
 class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", description="User email address")
-    role: UserRole = "Operator"
+    role: UserRole = "Technician"
     assigned_sites: List[str] = Field(default_factory=list)
     assigned_motors: List[str] = Field(default_factory=list)
     is_active: bool = True
+    session_revoked_at: Optional[datetime] = None
 
 
 class UserCreate(UserBase):

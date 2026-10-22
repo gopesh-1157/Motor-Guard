@@ -33,10 +33,11 @@ export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }
   const [softApIp, setSoftApIp] = useState('192.168.4.1')
   const [gatewaySaved, setGatewaySaved] = useState(false)
 
-  // Admin-only operator account provisioning
+  // Admin-only personnel account provisioning
   const [operatorUsername, setOperatorUsername] = useState('')
   const [operatorEmail, setOperatorEmail] = useState('')
   const [operatorPassword, setOperatorPassword] = useState('')
+  const [operatorRole, setOperatorRole] = useState<'Technician' | 'Manager'>('Technician')
   const [operatorSaving, setOperatorSaving] = useState(false)
   const [operatorFeedback, setOperatorFeedback] = useState<string | null>(null)
 
@@ -54,7 +55,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }
   const handleCreateOperator = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!isAdmin) {
-      setOperatorFeedback('Only an Administrator can create operator accounts.')
+      setOperatorFeedback('Only an Administrator can create personnel accounts.')
       return
     }
 
@@ -72,11 +73,11 @@ export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }
           username: operatorUsername.trim(),
           email: operatorEmail.trim(),
           password: operatorPassword,
-          role: 'Operator',
+          role: operatorRole,
         }),
       })
       if (res.ok) {
-        setOperatorFeedback(`Operator ${operatorUsername.trim()} created. Share credentials through your approved secure channel.`)
+        setOperatorFeedback(`${operatorRole} account '${operatorUsername.trim()}' created successfully.`)
         setOperatorUsername('')
         setOperatorEmail('')
         setOperatorPassword('')
@@ -85,10 +86,10 @@ export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }
         const detail = Array.isArray(error.detail)
           ? error.detail.map((item: { msg?: string }) => item.msg ?? 'Invalid field').join(', ')
           : error.detail
-        setOperatorFeedback(detail || `Unable to create the operator account (HTTP ${res.status}).`)
+        setOperatorFeedback(detail || `Unable to create account (HTTP ${res.status}).`)
       }
     } catch {
-      setOperatorFeedback('Network error: Unable to reach the account service.')
+      setOperatorFeedback('Network error: Unable to reach authentication service.')
     } finally {
       setOperatorSaving(false)
     }
@@ -283,18 +284,29 @@ export const SettingsView: FC<SettingsViewProps> = ({ currentUser, onOpenLogin }
           <form onSubmit={handleCreateOperator} className="measurement-card">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <UserPlus size={18} color="var(--brand-primary)" />
-              <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>Add Operator Account</h3>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>Add Personnel Account</h3>
             </div>
             <p style={{ margin: '0 0 14px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Operators can monitor assigned live equipment but cannot enroll devices, register motors, or change safety limits.
+              Administrators can provision Manager and Technician accounts with scoped permissions and site access.
             </p>
             <div style={{ display: 'grid', gap: '10px' }}>
-              <input className="search-input-field" value={operatorUsername} onChange={(e) => setOperatorUsername(e.target.value)} placeholder="Username" minLength={3} required />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <input className="search-input-field" value={operatorUsername} onChange={(e) => setOperatorUsername(e.target.value)} placeholder="Username" minLength={3} required />
+                <select
+                  className="search-input-field"
+                  value={operatorRole}
+                  onChange={(e) => setOperatorRole(e.target.value as 'Technician' | 'Manager')}
+                  style={{ background: 'var(--bg-input, rgba(255,255,255,0.05))', color: 'var(--text-main)' }}
+                >
+                  <option value="Technician" style={{ background: '#1e293b' }}>Technician</option>
+                  <option value="Manager" style={{ background: '#1e293b' }}>Manager</option>
+                </select>
+              </div>
               <input className="search-input-field" type="email" value={operatorEmail} onChange={(e) => setOperatorEmail(e.target.value)} placeholder="Work email" required />
               <input className="search-input-field" type="password" value={operatorPassword} onChange={(e) => setOperatorPassword(e.target.value)} placeholder="Temporary password (8+ characters)" minLength={8} required />
               {operatorFeedback && <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{operatorFeedback}</div>}
               <button type="submit" className="btn-primary" disabled={operatorSaving}>
-                <UserPlus size={14} /> <span>{operatorSaving ? 'Creating account...' : 'Create Operator'}</span>
+                <UserPlus size={14} /> <span>{operatorSaving ? 'Creating account...' : `Create ${operatorRole}`}</span>
               </button>
             </div>
           </form>

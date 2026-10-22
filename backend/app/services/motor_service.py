@@ -19,6 +19,7 @@ from backend.app.schemas.motor import (
     HealthThresholds,
     EdgeImpulseConfig,
 )
+from backend.app.schemas.user import UserOut
 
 logger = logging.getLogger("motorguard.motor_service")
 
@@ -50,8 +51,34 @@ class MotorService:
             "timestamp": datetime.now(timezone.utc),
         })
 
-    async def create_motor(self, data: MotorCreate, username: str) -> MotorOut:
+    def _validate_manager_site_access(self, user: UserOut, site_id: Optional[str], action_desc: str = "perform this action") -> None:
+        if user.role != "Manager":
+            return
+        from backend.app.config import settings
+        if not user.assigned_sites:
+            if settings.ENVIRONMENT.lower() == "production" or not getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Unscoped Manager cannot {action_desc}. Explicit site assignment required.",
+                )
+        elif site_id and site_id not in user.assigned_sites:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Manager is not authorized for site '{site_id}' to {action_desc}. Authorized sites: {user.assigned_sites}",
+            )
+
+    async def create_motor(self, data: MotorCreate, username: Union[str, UserOut]) -> MotorOut:
         """Register a new industrial motor asset."""
+        user_name = username.username if isinstance(username, UserOut) else str(username)
+        if isinstance(username, UserOut):
+            if username.role == "Technician":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Technicians are not permitted to register motor assets",
+                )
+            if username.role == "Manager":
+                self._validate_manager_site_access(username, data.site_id, "register motors")
+
         existing = await self.collection.find_one({"motor_id": data.motor_id})
         if existing:
             raise HTTPException(
@@ -87,17 +114,17 @@ class MotorService:
         doc["operational_state"] = "OFFLINE"
         doc["created_at"] = now
         doc["updated_at"] = now
-        doc["created_by"] = username
+        doc["created_by"] = user_name
 
         await self.collection.insert_one(doc)
-        await self._audit("CREATE_MOTOR", username, data.motor_id, {
+        await self._audit("CREATE_MOTOR", user_name, data.motor_id, {
             "name": data.name,
             "type": data.motor_type,
             "device": data.assigned_device_id,
             "site": data.site_id,
         })
 
-        logger.info("Created motor '%s' (%s) by '%s'", data.motor_id, data.name, username)
+        logger.info("Created motor '%s' (%s) by '%s'", data.motor_id, data.name, user_name)
         return MotorOut(**doc)
 
     async def get_effective_thresholds(self, motor_doc: Union[dict, str, None] = None) -> dict:
@@ -245,11 +272,33 @@ class MotorService:
             return "OFFLINE"
         return "UNKNOWN"
 
-    async def get_motor(self, motor_id: str) -> Optional[MotorOut]:
-        """Retrieve single motor asset by ID with live telemetry state."""
+    async def get_motor(self, motor_id: str, current_user: Optional[UserOut] = None) -> Optional[MotorOut]:
+        """Retrieve single motor asset by ID with live telemetry state and object-level scoping."""
         doc = await self.collection.find_one({"motor_id": motor_id}, {"_id": 0})
         if not doc:
             return None
+
+        # Object-level authorization check
+        if current_user is not None:
+            if current_user.role == "Manager":
+                from backend.app.config import settings
+                if not current_user.assigned_sites and (settings.ENVIRONMENT.lower() == "production" or not getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False)):
+                    return None
+                if current_user.assigned_sites and doc.get("site_id") not in current_user.assigned_sites:
+                    return None
+                if current_user.assigned_motors and motor_id not in current_user.assigned_motors:
+                    return None
+            elif current_user.role == "Technician":
+                is_assigned = motor_id in (current_user.assigned_motors or [])
+                if not is_assigned and self.db is not None:
+                    wo = await self.db["work_orders"].find_one({
+                        "motor_id": motor_id,
+                        "assigned_to_user_id": current_user.username,
+                    })
+                    if wo:
+                        is_assigned = True
+                if not is_assigned:
+                    return None
 
         # Enhance with live telemetry state and effective thresholds
         last_telem = await self.telemetry_collection.find_one(
@@ -264,11 +313,36 @@ class MotorService:
 
         return MotorOut(**self._normalize_doc(doc))
 
-    async def list_motors(self, site_id: Optional[str] = None) -> List[MotorOut]:
-        """List all registered motor assets."""
-        query = {}
+    async def list_motors(self, site_id: Optional[str] = None, current_user: Optional[UserOut] = None) -> List[MotorOut]:
+        """List registered motor assets with role-based and object-level isolation."""
+        query: Dict[str, Any] = {}
         if site_id:
             query["site_id"] = site_id
+
+        if current_user is not None:
+            if current_user.role == "Manager":
+                from backend.app.config import settings
+                if not current_user.assigned_sites:
+                    if settings.ENVIRONMENT.lower() == "production" or not getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False):
+                        return []
+                else:
+                    if site_id:
+                        if site_id not in current_user.assigned_sites:
+                            return []
+                    else:
+                        query["site_id"] = {"$in": current_user.assigned_sites}
+                if current_user.assigned_motors:
+                    query["motor_id"] = {"$in": current_user.assigned_motors}
+            elif current_user.role == "Technician":
+                tech_motors = set(current_user.assigned_motors or [])
+                if self.db is not None:
+                    cursor_wo = self.db["work_orders"].find({"assigned_to_user_id": current_user.username})
+                    async for wo in cursor_wo:
+                        if "motor_id" in wo:
+                            tech_motors.add(wo["motor_id"])
+                if not tech_motors:
+                    return []
+                query["motor_id"] = {"$in": list(tech_motors)}
 
         cursor = self.collection.find(query, {"_id": 0})
         docs = await cursor.to_list(length=200)
@@ -290,11 +364,24 @@ class MotorService:
 
         return results
 
-    async def update_motor_config(self, motor_id: str, data: MotorUpdate, username: str) -> MotorOut:
-        """Update motor parameters, thresholds, and device associations."""
+    async def update_motor_config(self, motor_id: str, data: MotorUpdate, username: Union[str, UserOut]) -> MotorOut:
+        """Update motor parameters, thresholds, and device associations with RBAC scoping."""
+        user_name = username.username if isinstance(username, UserOut) else str(username)
+        if isinstance(username, UserOut):
+            if username.role == "Technician":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Technicians are not permitted to modify motor configurations",
+                )
+
         existing = await self.collection.find_one({"motor_id": motor_id})
         if not existing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Motor '{motor_id}' not found")
+
+        if isinstance(username, UserOut) and username.role == "Manager":
+            self._validate_manager_site_access(username, existing.get("site_id"), f"modify motor '{motor_id}'")
+            if data.site_id:
+                self._validate_manager_site_access(username, data.site_id, f"reassign motor to site '{data.site_id}'")
 
         now = datetime.now(timezone.utc)
         update_dict = {k: v for k, v in data.model_dump().items() if v is not None}
@@ -332,20 +419,31 @@ class MotorService:
         update_dict["updated_at"] = now
 
         await self.collection.update_one({"motor_id": motor_id}, {"$set": update_dict})
-        await self._audit("UPDATE_CONFIG", username, motor_id, {
+        await self._audit("UPDATE_CONFIG", user_name, motor_id, {
             "version": new_version,
             "fields": list(update_dict.keys()),
         })
 
-        logger.info("Updated motor config for '%s' to version %d", motor_id, new_version)
+        logger.info("Updated motor config for '%s' to version %d by '%s'", motor_id, new_version, user_name)
         updated_doc = await self.collection.find_one({"motor_id": motor_id}, {"_id": 0})
         return MotorOut(**self._normalize_doc(updated_doc))
 
-    async def disable_motor(self, motor_id: str, username: str) -> MotorOut:
-        """Mark motor inactive and disable real-time dispatch."""
+    async def disable_motor(self, motor_id: str, username: Union[str, UserOut]) -> MotorOut:
+        """Mark motor inactive and disable real-time dispatch with RBAC validation."""
+        user_name = username.username if isinstance(username, UserOut) else str(username)
+        if isinstance(username, UserOut):
+            if username.role == "Technician":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Technicians are not permitted to deactivate motors",
+                )
+
         existing = await self.collection.find_one({"motor_id": motor_id})
         if not existing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Motor '{motor_id}' not found")
+
+        if isinstance(username, UserOut) and username.role == "Manager":
+            self._validate_manager_site_access(username, existing.get("site_id"), f"deactivate motor '{motor_id}'")
 
         now = datetime.now(timezone.utc)
         await self.collection.update_one(
@@ -353,14 +451,32 @@ class MotorService:
             {"$set": {"status": "inactive", "operational_state": "OFFLINE", "updated_at": now}},
         )
 
-        await self._audit("DISABLE_MOTOR", username, motor_id, {"previous_status": existing.get("status")})
-        logger.info("Disabled motor '%s' by '%s'", motor_id, username)
+        await self._audit("DISABLE_MOTOR", user_name, motor_id, {"previous_status": existing.get("status")})
+        logger.info("Disabled motor '%s' by '%s'", motor_id, user_name)
         updated_doc = await self.collection.find_one({"motor_id": motor_id}, {"_id": 0})
         return MotorOut(**self._normalize_doc(updated_doc))
 
-    async def get_audit_trail(self, limit: int = 50) -> List[dict]:
-        """Fetch audit log events."""
-        cursor = self.audit_collection.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit)
+    async def get_audit_trail(self, limit: int = 50, current_user: Optional[UserOut] = None) -> List[dict]:
+        """Fetch audit log events with role-based scoping."""
+        query: Dict[str, Any] = {}
+        if current_user is not None:
+            if current_user.role == "Technician":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Technicians are not authorized to view audit trail",
+                )
+            if current_user.role == "Manager":
+                from backend.app.config import settings
+                if not current_user.assigned_sites:
+                    if settings.ENVIRONMENT.lower() == "production" or not getattr(settings, "ALLOW_UNSCOPED_MANAGERS", False):
+                        return []
+                else:
+                    query["$or"] = [
+                        {"details.site": {"$in": current_user.assigned_sites}},
+                        {"details.site_id": {"$in": current_user.assigned_sites}},
+                    ]
+
+        cursor = self.audit_collection.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit)
         events = await cursor.to_list(length=limit)
         for e in events:
             if "timestamp" in e and hasattr(e["timestamp"], "isoformat"):

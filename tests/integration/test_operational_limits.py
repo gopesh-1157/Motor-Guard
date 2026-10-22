@@ -56,7 +56,7 @@ def mock_users():
         id="usr_operator",
         username="operator_bob",
         email="operator@motorguard.local",
-        role="Operator",
+        role="Technician",
         is_active=True,
         assigned_sites=["SITE-01"],
         assigned_motors=[],
@@ -888,7 +888,7 @@ async def test_effective_thresholds_authenticated_api():
     from backend.app.api.v1.endpoints.motors import get_motor_service
     app.dependency_overrides[get_motor_service] = lambda: MotorService(mock_db)
     user_out = UserOut(
-        id="usr_op", username="op_user", email="op@motorguard.local", role="Operator",
+        id="usr_op", username="op_user", email="op@motorguard.local", role="Technician",
         is_active=True, assigned_sites=["SITE-PLANT-A"], assigned_motors=[],
         created_at=None, last_login_at=None,
     )

@@ -29,8 +29,8 @@ async def list_motors(
     current_user: UserOut = Depends(get_current_active_user),
     motor_service: MotorService = Depends(get_motor_service),
 ):
-    """List all registered motor assets with operational and health status (Requires authenticated user)."""
-    return await motor_service.list_motors(site_id=site_id)
+    """List registered motor assets with object-level isolation (Requires authenticated user)."""
+    return await motor_service.list_motors(site_id=site_id, current_user=current_user)
 
 
 
@@ -41,7 +41,7 @@ async def create_motor(
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Register a new industrial motor asset into the plant registry (Requires Admin or Manager)."""
-    return await motor_service.create_motor(data, username=current_user.username)
+    return await motor_service.create_motor(data, username=current_user)
 
 
 @router.get("/audit", summary="Get motor configuration audit trail")
@@ -51,7 +51,7 @@ async def get_audit_trail(
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Retrieve immutable audit log of motor creation, config edits, and device reassignments."""
-    return await motor_service.get_audit_trail(limit=limit)
+    return await motor_service.get_audit_trail(limit=limit, current_user=current_user)
 
 
 @router.get("/{motor_id}", response_model=MotorOut, summary="Get motor details")
@@ -61,7 +61,7 @@ async def get_motor(
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Retrieve full configuration and live operational status for a single motor (Requires authenticated user)."""
-    motor = await motor_service.get_motor(motor_id)
+    motor = await motor_service.get_motor(motor_id, current_user=current_user)
     if not motor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Motor '{motor_id}' not found")
     return motor
@@ -75,7 +75,7 @@ async def update_motor(
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Update motor specifications, thresholds, or device assignments (Requires Admin or Manager)."""
-    return await motor_service.update_motor_config(motor_id, data, username=current_user.username)
+    return await motor_service.update_motor_config(motor_id, data, username=current_user)
 
 
 @router.get("/{motor_id}/configuration", summary="Get motor configuration JSON")
@@ -85,7 +85,7 @@ async def get_motor_configuration(
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Export clean non-secret hardware sensor mappings, thresholds, and AI profile."""
-    motor = await motor_service.get_motor(motor_id)
+    motor = await motor_service.get_motor(motor_id, current_user=current_user)
     if not motor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Motor '{motor_id}' not found")
     return {
@@ -106,7 +106,7 @@ async def get_effective_thresholds(
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Retrieve resolved effective operational thresholds following priority order."""
-    motor = await motor_service.get_motor(motor_id)
+    motor = await motor_service.get_motor(motor_id, current_user=current_user)
     if not motor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Motor '{motor_id}' not found")
 
@@ -126,7 +126,7 @@ async def patch_motor_configuration(
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Patch specific hardware parameters or safety thresholds."""
-    return await motor_service.update_motor_config(motor_id, data, username=current_user.username)
+    return await motor_service.update_motor_config(motor_id, data, username=current_user)
 
 
 @router.post("/{motor_id}/disable", response_model=MotorOut, summary="Disable motor")
@@ -136,4 +136,4 @@ async def disable_motor(
     motor_service: MotorService = Depends(get_motor_service),
 ):
     """Deactivate motor asset and prevent further operational dispatch."""
-    return await motor_service.disable_motor(motor_id, username=current_user.username)
+    return await motor_service.disable_motor(motor_id, username=current_user)

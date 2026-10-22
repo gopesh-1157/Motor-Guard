@@ -29,9 +29,9 @@ def test_simulator_status_authenticated():
     """Authenticated user can view simulator status and virtual node topology."""
     mock_user = UserOut(
         id="usr-test",
-        username="operator_bob",
+        username="technician_bob",
         email="bob@factory.local",
-        role="Operator",
+        role="Technician",
         assigned_sites=["SITE-MAIN"],
         assigned_motors=[],
         is_active=True,
@@ -51,12 +51,12 @@ def test_simulator_status_authenticated():
 
 
 def test_simulator_operator_forbidden_from_injection():
-    """Operator receives 403 Forbidden when attempting to inject simulated faults."""
+    """Technician receives 403 Forbidden when attempting to inject simulated faults."""
     mock_op = UserOut(
-        id="usr-op",
-        username="operator_bob",
+        id="usr-tech",
+        username="technician_bob",
         email="bob@factory.local",
-        role="Operator",
+        role="Technician",
         assigned_sites=["SITE-MAIN"],
         assigned_motors=[],
         is_active=True,

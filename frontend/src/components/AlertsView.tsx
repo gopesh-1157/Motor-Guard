@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import type { FC } from 'react'
-import type { AlertItem, UserProfile, MotorState } from '../types'
+import type { AlertItem, UserProfile, MotorState, TechnicianUser } from '../types'
 
 interface AlertsViewProps {
   alerts: AlertItem[]
@@ -85,10 +85,30 @@ const TRIGGER_TYPE_ICONS: Record<string, string> = {
   DEVICE_OFFLINE: '📡',
 }
 
-const TECHNICIANS = [
-  { id: 'tech_dave', name: 'Dave Miller', spec: 'Mechanical & Vibration Specialist', initials: 'DM', color: '#3b82f6' },
-  { id: 'tech_sara', name: 'Sara Connor', spec: 'Electrical & Thermal Specialist', initials: 'SC', color: '#8b5cf6' },
-]
+const CATEGORY_CONFIG: Record<string, { label: string; icon: string; className: string }> = {
+  SAFETY_THRESHOLD: { label: 'Safety Rule', icon: '🛡️', className: 'alerts-category--safety' },
+  ML_INFERENCE: { label: 'TinyML Inference', icon: '🧠', className: 'alerts-category--ml' },
+  SENSOR_DIAGNOSTIC: { label: 'Sensor Diagnostic', icon: '🔌', className: 'alerts-category--sensor' },
+  CONNECTIVITY: { label: 'Connectivity', icon: '📡', className: 'alerts-category--conn' },
+}
+
+const TRIGGER_TYPE_TO_CATEGORY: Record<string, string> = {
+  THRESHOLD_OVERCURRENT: 'SAFETY_THRESHOLD',
+  HARD_OVERCURRENT_TRIP: 'SAFETY_THRESHOLD',
+  THRESHOLD_OVERTEMPERATURE: 'SAFETY_THRESHOLD',
+  THRESHOLD_HIGH_VIBRATION: 'SAFETY_THRESHOLD',
+  THRESHOLD_HIGH_VIBRATION_RMS: 'SAFETY_THRESHOLD',
+  THRESHOLD_HIGH_VIBRATION_PEAK: 'SAFETY_THRESHOLD',
+  CRITICAL_INFERENCE_FAULT: 'ML_INFERENCE',
+  WARNING_INFERENCE_ANOMALY: 'ML_INFERENCE',
+  SENSOR_DISCONNECTED: 'SENSOR_DIAGNOSTIC',
+  SENSOR_TEMPERATURE_DISCONNECTED: 'SENSOR_DIAGNOSTIC',
+  SENSOR_CURRENT_DISCONNECTED: 'SENSOR_DIAGNOSTIC',
+  SENSOR_VIBRATION_DISCONNECTED: 'SENSOR_DIAGNOSTIC',
+  SENSOR_UNCALIBRATED: 'SENSOR_DIAGNOSTIC',
+  INFERENCE_DIAGNOSTIC_FAILURE: 'SENSOR_DIAGNOSTIC',
+  DEVICE_OFFLINE: 'CONNECTIVITY',
+}
 
 export const AlertsView: FC<AlertsViewProps> = ({
   alerts,
@@ -119,11 +139,59 @@ export const AlertsView: FC<AlertsViewProps> = ({
   const [liveAlertCount, setLiveAlertCount] = useState(0)
   const [showTimeline, setShowTimeline] = useState(false)
 
+  // Dynamic Technicians (authenticated endpoint /api/v1/auth/technicians)
+  const [technicians, setTechnicians] = useState<TechnicianUser[]>([])
+  const [loadingTechnicians, setLoadingTechnicians] = useState<boolean>(false)
+  const [technicianFetchError, setTechnicianFetchError] = useState<string | null>(null)
+
   // Assign Modal
   const [assignModalAlert, setAssignModalAlert] = useState<AlertItem | null>(null)
-  const [selectedTechnician, setSelectedTechnician] = useState(TECHNICIANS[0].id)
+  const [selectedTechnician, setSelectedTechnician] = useState<string>('')
   const [assignPriority, setAssignPriority] = useState<'NORMAL' | 'HIGH' | 'URGENT' | 'CRITICAL'>('CRITICAL')
   const [assignInstructions, setAssignInstructions] = useState('')
+
+  const fetchTechnicians = useCallback(async () => {
+    if (!currentUser || (currentUser.role !== 'Admin' && currentUser.role !== 'Manager')) {
+      return
+    }
+    setLoadingTechnicians(true)
+    setTechnicianFetchError(null)
+    try {
+      const token = localStorage.getItem('motorguard_auth_token') || currentUser.token
+      const res = await fetch('/api/v1/auth/technicians', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (res.status === 401) {
+        setTechnicianFetchError('Session expired. Please log in again.')
+        return
+      }
+      if (!res.ok) {
+        throw new Error(`Failed to load technicians (${res.status})`)
+      }
+      const data: TechnicianUser[] = await res.json()
+      setTechnicians(data)
+      if (data.length > 0) {
+        setSelectedTechnician((prev) => prev || data[0].username)
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error fetching technicians'
+      setTechnicianFetchError(msg)
+    } finally {
+      setLoadingTechnicians(false)
+    }
+  }, [currentUser])
+
+  useEffect(() => {
+    if (currentUser?.role === 'Admin' || currentUser?.role === 'Manager') {
+      fetchTechnicians()
+    }
+  }, [currentUser, fetchTechnicians])
+
+  const getInitials = (username: string) => (username || 'TC').slice(0, 2).toUpperCase()
+  const getAvatarColor = (idx: number) => {
+    const colors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4']
+    return colors[idx % colors.length]
+  }
 
   // Resolve Modal
   const [resolveModalAlert, setResolveModalAlert] = useState<AlertItem | null>(null)
@@ -224,6 +292,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
   // Handlers
   const handleOpenAssignModal = (alert: AlertItem) => {
     setAssignModalAlert(alert)
+    setSelectedTechnician((prev) => prev || technicians[0]?.username || '')
     setAssignPriority(alert.severity === 'CRITICAL' ? 'CRITICAL' : 'HIGH')
     setAssignInstructions(
       `${alert.severity === 'CRITICAL' ? 'URGENT: ' : ''}${alert.message}. Inspect ${alert.motor_id} on site and complete repair logging.`
@@ -231,7 +300,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
   }
 
   const handleConfirmAssign = () => {
-    if (!assignModalAlert) return
+    if (!assignModalAlert || !selectedTechnician) return
     onAssignAlert(assignModalAlert.alert_id, selectedTechnician, assignPriority, assignInstructions)
     addToast(`Dispatched ${assignModalAlert.alert_id} → ${selectedTechnician}`, 'success')
     setAssignModalAlert(null)
@@ -578,6 +647,30 @@ export const AlertsView: FC<AlertsViewProps> = ({
                     <span className={`alerts-badge alerts-badge--${alert.severity.toLowerCase()}`}>
                       {SEVERITY_ICONS[alert.severity]} {alert.severity}
                     </span>
+                    {(() => {
+                      const cat = alert.category || TRIGGER_TYPE_TO_CATEGORY[alert.trigger_type] || 'SAFETY_THRESHOLD'
+                      const conf = CATEGORY_CONFIG[cat]
+                      return conf ? (
+                        <span className={`alerts-category-badge ${conf.className}`}>
+                          {conf.icon} {conf.label}
+                        </span>
+                      ) : null
+                    })()}
+                    {(() => {
+                      const isML = alert.category === 'ML_INFERENCE' || alert.trigger_type.includes('INFERENCE')
+                      if (!isML && !alert.ml_health_status) return null
+                      const mlLabel = alert.ml_health_status || (alert.severity === 'CRITICAL' ? 'critical' : 'warning')
+                      return (
+                        <span className="alerts-ml-badge">
+                          🧠 ML: {mlLabel.toUpperCase()}
+                          {alert.ml_confidence !== undefined && alert.ml_confidence !== null
+                            ? ` (${(alert.ml_confidence * 100).toFixed(0)}%)`
+                            : alert.trigger_value > 0
+                            ? ` (${(alert.trigger_value * 100).toFixed(0)}%)`
+                            : ''}
+                        </span>
+                      )
+                    })()}
                     <span className={`alerts-badge alerts-badge--state-${alert.state.toLowerCase()}`}>
                       ● {alert.state}
                     </span>
@@ -612,6 +705,11 @@ export const AlertsView: FC<AlertsViewProps> = ({
                       >
                         {alert.motor_id}
                       </strong>
+                      {alert.site_id && (
+                        <span className="alerts-badge" style={{ fontSize: '10px', background: 'rgba(255,255,255,0.06)' }}>
+                          📍 {alert.site_id}
+                        </span>
+                      )}
                       <span className="alerts-card__device">Device: {alert.device_id}</span>
                     </div>
                     <div className="alerts-card__message">{alert.message}</div>
@@ -764,22 +862,56 @@ export const AlertsView: FC<AlertsViewProps> = ({
 
               {/* Technician Selection */}
               <div className="form-group" style={{ marginTop: '1.25rem' }}>
-                <label className="form-label">Select Certified Field Technician</label>
-                <div className="tech-selection-grid">
-                  {TECHNICIANS.map((tech) => (
-                    <div
-                      key={tech.id}
-                      className={`tech-card ${selectedTechnician === tech.id ? 'selected' : ''}`}
-                      onClick={() => setSelectedTechnician(tech.id)}
-                    >
-                      <div className="tech-avatar" style={{ background: tech.color }}>{tech.initials}</div>
-                      <div>
-                        <div className="tech-name">{tech.name} ({tech.id})</div>
-                        <div className="tech-spec">{tech.spec}</div>
-                      </div>
-                    </div>
-                  ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label className="form-label" style={{ margin: 0 }}>Select Certified Field Technician</label>
+                  {currentUser?.role === 'Manager' && currentUser.assigned_sites && currentUser.assigned_sites.length > 0 && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      Scope: {currentUser.assigned_sites.join(', ')}
+                    </span>
+                  )}
                 </div>
+
+                {loadingTechnicians ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--bg-app)', borderRadius: 'var(--radius-sm)' }}>
+                    🔄 Querying verified technicians for authorized scope...
+                  </div>
+                ) : technicianFetchError ? (
+                  <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>⚠️ {technicianFetchError}</span>
+                    <button type="button" className="alerts-btn alerts-btn--sm alerts-btn--outline" onClick={fetchTechnicians}>
+                      Retry
+                    </button>
+                  </div>
+                ) : technicians.length === 0 ? (
+                  <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--bg-app)', borderRadius: 'var(--radius-sm)' }}>
+                    No active certified technicians found in your assigned scope.
+                  </div>
+                ) : (
+                  <div className="tech-selection-grid">
+                    {technicians.map((tech, idx) => (
+                      <div
+                        key={tech.id || tech.username}
+                        className={`tech-card ${selectedTechnician === tech.username ? 'selected' : ''}`}
+                        onClick={() => setSelectedTechnician(tech.username)}
+                      >
+                        <div className="tech-avatar" style={{ background: getAvatarColor(idx) }}>
+                          {getInitials(tech.username)}
+                        </div>
+                        <div style={{ overflow: 'hidden' }}>
+                          <div className="tech-name">
+                            <strong>{tech.username}</strong>
+                            {tech.assigned_sites && tech.assigned_sites.length > 0 && (
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '6px' }}>
+                                [{tech.assigned_sites.join(', ')}]
+                              </span>
+                            )}
+                          </div>
+                          <div className="tech-spec">{tech.email || 'Certified Field Technician'}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Priority */}

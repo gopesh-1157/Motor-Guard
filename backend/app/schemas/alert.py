@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 AlertSeverity = Literal["INFO", "WARNING", "CRITICAL"]
 AlertState = Literal["ACTIVE", "ACKNOWLEDGED", "RESOLVED"]
+AlertCategory = Literal["SAFETY_THRESHOLD", "ML_INFERENCE", "SENSOR_DIAGNOSTIC", "CONNECTIVITY"]
 AlertTriggerType = Literal[
     "THRESHOLD_OVERCURRENT",
     "THRESHOLD_OVERTEMPERATURE",
@@ -23,7 +24,26 @@ AlertTriggerType = Literal[
     "THRESHOLD_HIGH_VIBRATION_RMS",
     "THRESHOLD_HIGH_VIBRATION_PEAK",
     "WARNING_INFERENCE_ANOMALY",
+    "INFERENCE_DIAGNOSTIC_FAILURE",
 ]
+
+TRIGGER_TYPE_TO_CATEGORY: dict[str, AlertCategory] = {
+    "THRESHOLD_OVERCURRENT": "SAFETY_THRESHOLD",
+    "THRESHOLD_OVERTEMPERATURE": "SAFETY_THRESHOLD",
+    "THRESHOLD_HIGH_VIBRATION": "SAFETY_THRESHOLD",
+    "THRESHOLD_HIGH_VIBRATION_RMS": "SAFETY_THRESHOLD",
+    "THRESHOLD_HIGH_VIBRATION_PEAK": "SAFETY_THRESHOLD",
+    "HARD_OVERCURRENT_TRIP": "SAFETY_THRESHOLD",
+    "CRITICAL_INFERENCE_FAULT": "ML_INFERENCE",
+    "WARNING_INFERENCE_ANOMALY": "ML_INFERENCE",
+    "SENSOR_DISCONNECTED": "SENSOR_DIAGNOSTIC",
+    "SENSOR_TEMPERATURE_DISCONNECTED": "SENSOR_DIAGNOSTIC",
+    "SENSOR_CURRENT_DISCONNECTED": "SENSOR_DIAGNOSTIC",
+    "SENSOR_VIBRATION_DISCONNECTED": "SENSOR_DIAGNOSTIC",
+    "SENSOR_UNCALIBRATED": "SENSOR_DIAGNOSTIC",
+    "INFERENCE_DIAGNOSTIC_FAILURE": "SENSOR_DIAGNOSTIC",
+    "DEVICE_OFFLINE": "CONNECTIVITY",
+}
 
 
 class AlertBase(BaseModel):
@@ -35,6 +55,15 @@ class AlertBase(BaseModel):
     threshold_limit: float
     unit: str
     message: str
+    site_id: Optional[str] = None
+    category: Optional[AlertCategory] = None
+    configuration_snapshot: Optional[dict] = None
+    last_observed_at: Optional[datetime] = None
+    source: Optional[str] = None
+
+    def model_post_init(self, __context) -> None:
+        if self.category is None:
+            self.category = TRIGGER_TYPE_TO_CATEGORY.get(self.trigger_type, "SAFETY_THRESHOLD")
 
 
 class AlertCreate(AlertBase):

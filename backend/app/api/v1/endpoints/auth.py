@@ -4,7 +4,7 @@ MotorGuard — Auth & User Management Endpoints
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from backend.app.schemas.user import LoginRequest, Token, UserCreate, UserOut
+from backend.app.schemas.user import LoginRequest, Token, UserCreate, UserUpdate, UserOut
 from backend.app.services.user_service import UserService
 from backend.app.core.auth import get_user_service, get_current_active_user, require_roles
 from backend.app.core.security import create_access_token
@@ -65,7 +65,19 @@ async def register_user(
     current_user: UserOut = Depends(require_roles("Admin")),
     user_service: UserService = Depends(get_user_service),
 ):
-    """Register a new user account (Requires 'Admin' role)."""
+    """Register a new user account (Requires 'Admin' role; role must be Manager or Technician)."""
+    # Security Constraint: Admin cannot create another Admin through ordinary APIs
+    if user_in.role == "Admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Creating Admin accounts through standard user management is prohibited. Admin accounts require system bootstrap.",
+        )
+    if user_in.role not in ("Manager", "Technician"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Role '{user_in.role}' is invalid. Standard user creation permits only 'Manager' or 'Technician'.",
+        )
+
     existing_username = await user_service.get_by_username(user_in.username)
     if existing_username:
         raise HTTPException(
@@ -73,7 +85,14 @@ async def register_user(
             detail=f"Username '{user_in.username}' is already registered",
         )
 
-    return await user_service.create_user(user_in)
+    existing_email = await user_service.get_by_email(user_in.email)
+    if existing_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Email '{user_in.email}' is already registered",
+        )
+
+    return await user_service.create_user(user_in, actor=current_user.username)
 
 
 @router.get("/users", response_model=List[UserOut])
@@ -87,10 +106,52 @@ async def list_users(
     return await user_service.list_users(skip=skip, limit=limit)
 
 
+@router.patch("/users/{user_id}", response_model=UserOut)
+async def update_user(
+    user_id: str,
+    user_update: UserUpdate,
+    current_user: UserOut = Depends(require_roles("Admin")),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Update user profile, permissions, or activation status (Requires 'Admin' role)."""
+    return await user_service.update_user(user_id, user_update, actor=current_user.username)
+
+
+@router.post("/users/{user_id}/status", response_model=UserOut)
+async def toggle_user_status(
+    user_id: str,
+    is_active: bool,
+    current_user: UserOut = Depends(require_roles("Admin")),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Activate or deactivate user account with final Admin protection (Requires 'Admin' role)."""
+    return await user_service.update_user(user_id, UserUpdate(is_active=is_active), actor=current_user.username)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: str,
+    current_user: UserOut = Depends(require_roles("Admin")),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Delete a user account with final Admin protection (Requires 'Admin' role)."""
+    await user_service.delete_user(user_id, actor=current_user.username)
+    return None
+
+
 @router.get("/technicians", response_model=List[UserOut])
 async def list_technicians(
+    site_id: str = None,
     current_user: UserOut = Depends(require_roles("Admin", "Manager")),
     user_service: UserService = Depends(get_user_service),
 ):
     """List eligible technicians for work order assignment (Requires 'Admin' or 'Manager' role)."""
-    return await user_service.list_technicians()
+    effective_site_id = site_id
+    if current_user.role == "Manager" and current_user.assigned_sites:
+        if site_id and site_id not in current_user.assigned_sites:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied: Site '{site_id}' is outside your authorized scope {current_user.assigned_sites}",
+            )
+        effective_site_id = site_id or (current_user.assigned_sites[0] if len(current_user.assigned_sites) == 1 else None)
+    return await user_service.list_technicians(site_id=effective_site_id)

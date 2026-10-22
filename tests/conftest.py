@@ -112,6 +112,8 @@ class MockAsyncCollection:
             if isinstance(v, dict):
                 if "$in" in v and doc.get(k) not in v["$in"]:
                     return False
+                if "$nin" in v and doc.get(k) in v["$nin"]:
+                    return False
                 if "$gte" in v and (doc.get(k) is None or doc.get(k) < v["$gte"]):
                     return False
                 if "$lte" in v and (doc.get(k) is None or doc.get(k) > v["$lte"]):
@@ -354,7 +356,18 @@ def _seed_test_data(db):
             "username": "operator_bob",
             "email": "bob@motorguard.local",
             "password_hash": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",
-            "role": "Operator",
+            "role": "Technician",
+            "is_active": True,
+            "assigned_sites": ["SITE-01"],
+            "assigned_motors": [],
+            "created_at": now,
+        },
+        {
+            "_id": "usr_technician_bob",
+            "username": "technician_bob",
+            "email": "technician_bob@motorguard.local",
+            "password_hash": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",
+            "role": "Technician",
             "is_active": True,
             "assigned_sites": ["SITE-01"],
             "assigned_motors": [],
