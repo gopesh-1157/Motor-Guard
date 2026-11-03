@@ -16,6 +16,8 @@ import {
   Sliders,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Zap,
 } from 'lucide-react'
 import type { DashboardStats, MotorState, AlertItem, NavigationTab } from '../types'
@@ -62,6 +64,7 @@ export const OverviewView: FC<OverviewViewProps> = ({
   )
   const [isSimInjecting, setIsSimInjecting] = useState(false)
   const [simMessage, setSimMessage] = useState<string | null>(null)
+  const [showTestbench, setShowTestbench] = useState(false)
 
   const activeMotor3D = useMemo(() => {
     return motors.find((m) => m.motor_id === selectedMotorFor3D) || motors[0]
@@ -200,7 +203,8 @@ export const OverviewView: FC<OverviewViewProps> = ({
   const formatTimestamp = (iso?: string) => {
     if (!iso) return 'Just now'
     try {
-      const d = new Date(iso)
+      const normalized = !iso.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(iso) ? `${iso}Z` : iso
+      const d = new Date(normalized)
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     } catch {
       return iso
@@ -298,196 +302,224 @@ export const OverviewView: FC<OverviewViewProps> = ({
         </div>
       </div>
 
-      {/* 2. Top Fleet Summary KPI Row (All 6 Required Metrics) */}
-      <div className="kpi-summary-row" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
+      {/* 2. Top Fleet Summary KPI Row */}
+      <div className="kpi-summary-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
         {/* Metric 1: Total Registered Motors */}
         <div
-          className={`kpi-summary-card scada-panel ${statusFilter === 'all' && connectionFilter === 'all' ? 'active' : ''}`}
+          className={`kpi-summary-card ${statusFilter === 'all' && connectionFilter === 'all' ? 'active' : ''}`}
           onClick={() => {
             setStatusFilter('all')
             setConnectionFilter('all')
           }}
           title="Filter all registered drive motors"
         >
-          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
-            <span>TOTAL ASSETS</span>
+          <div className="kpi-header">
+            <span>Total Drives</span>
             <Activity size={13} color="var(--brand-primary)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.totalMotors}</span>
-            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>DRIVES</span>
+            <span className="kpi-value tabular-nums">{stats.totalMotors}</span>
           </div>
-          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>LINE 1 + 2 ASSETS</span>
+          <span className="kpi-subtext">Monitored units</span>
         </div>
 
         {/* Metric 2: Healthy Motors */}
         <div
-          className={`kpi-summary-card healthy scada-panel ${statusFilter === 'healthy' ? 'active' : ''}`}
+          className={`kpi-summary-card healthy ${statusFilter === 'healthy' ? 'active' : ''}`}
           onClick={() => {
             setStatusFilter('healthy')
             setConnectionFilter('all')
           }}
           title="Filter healthy state motors"
         >
-          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
-            <span>NOMINAL RUN</span>
+          <div className="kpi-header">
+            <span>Nominal</span>
             <CheckCircle size={13} color="var(--status-healthy)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.healthyCount}</span>
-            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>OPTIMAL</span>
+            <span className="kpi-value tabular-nums">{stats.healthyCount}</span>
           </div>
-          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>ISO ZONE A/B OK</span>
+          <span className="kpi-subtext">Operating in range</span>
         </div>
 
         {/* Metric 3: Warning Motors */}
         <div
-          className={`kpi-summary-card warning scada-panel ${statusFilter === 'warning' ? 'active' : ''}`}
+          className={`kpi-summary-card warning ${statusFilter === 'warning' ? 'active' : ''}`}
           onClick={() => {
             setStatusFilter('warning')
             setConnectionFilter('all')
           }}
           title="Filter warning state motors"
         >
-          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
-            <span>ADVISORY</span>
+          <div className="kpi-header">
+            <span>Advisory</span>
             <AlertTriangle size={13} color="var(--status-warning)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.warningCount}</span>
-            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>FLAGGED</span>
+            <span className="kpi-value tabular-nums">{stats.warningCount}</span>
           </div>
-          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>THERMAL / LOAD TRIP</span>
+          <span className="kpi-subtext">Thermal / vibration trip</span>
         </div>
 
         {/* Metric 4: Critical Motors */}
         <div
-          className={`kpi-summary-card critical scada-panel ${statusFilter === 'critical' ? 'active' : ''}`}
+          className={`kpi-summary-card critical ${statusFilter === 'critical' ? 'active' : ''}`}
           onClick={() => {
             setStatusFilter('critical')
             setConnectionFilter('all')
           }}
           title="Filter critical fault motors"
         >
-          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
-            <span>CRITICAL TRIP</span>
+          <div className="kpi-header">
+            <span>Critical Fault</span>
             <XCircle size={13} color="var(--status-critical)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.criticalCount}</span>
-            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>ALARMS</span>
+            <span className="kpi-value tabular-nums">{stats.criticalCount}</span>
           </div>
-          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>SAFETY INTERLOCK</span>
+          <span className="kpi-subtext">Intervention required</span>
         </div>
 
         {/* Metric 5: Offline Motors */}
         <div
-          className={`kpi-summary-card scada-panel ${connectionFilter === 'offline' ? 'active' : ''}`}
+          className={`kpi-summary-card ${connectionFilter === 'offline' ? 'active' : ''}`}
           onClick={() => {
             setConnectionFilter('offline')
             setStatusFilter('all')
           }}
           title="Filter offline motors"
         >
-          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
-            <span>COMM OFFLINE</span>
+          <div className="kpi-header">
+            <span>Offline</span>
             <WifiOff size={13} color="var(--status-offline)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.offlineCount}</span>
-            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>NODES</span>
+            <span className="kpi-value tabular-nums">{stats.offlineCount}</span>
           </div>
-          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>HEARTBEAT TIMEOUT</span>
+          <span className="kpi-subtext">Heartbeat lost</span>
         </div>
 
         {/* Metric 6: Connected ESP32 Devices */}
         <div
-          className={`kpi-summary-card hardware scada-panel ${sourceFilter === 'hardware' ? 'active' : ''}`}
+          className={`kpi-summary-card hardware ${sourceFilter === 'hardware' ? 'active' : ''}`}
           onClick={() => {
             setSourceFilter(sourceFilter === 'hardware' ? 'all' : 'hardware')
           }}
           title="Filter physical hardware ESP32 nodes"
         >
-          <div className="kpi-header" style={{ fontFamily: 'var(--scada-mono-font)' }}>
-            <span>ESP32 OT NODES</span>
+          <div className="kpi-header">
+            <span>ESP32 Node</span>
             <Radio size={13} color="var(--status-hardware)" />
           </div>
           <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.hardwareCount ?? 0}</span>
-            <span className="kpi-unit" style={{ fontFamily: 'var(--scada-mono-font)' }}>{stats.esp32ApConnected ? 'HW ONLINE' : 'ACTIVE'}</span>
+            <span className="kpi-value tabular-nums">{stats.hardwareCount ?? 0}</span>
           </div>
-          <span className="kpi-subtext" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px' }}>DHT11 + ACS712 + ADXL</span>
+          <span className="kpi-subtext">{stats.esp32ApConnected ? 'Node online' : 'Standby / WiFi'}</span>
         </div>
       </div>
 
-      {/* Simulator Test Controls Bar */}
+      {/* Simulator Test Controls Drawer */}
       <div
-        className="measurement-card scada-panel"
         style={{
-          padding: '10px 16px',
+          borderRadius: 'var(--radius-sm)',
+          border: '1px solid var(--border-main)',
+          background: 'var(--bg-card)',
+          padding: '8px 14px',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '12px',
-          borderLeft: '4px solid var(--brand-primary)',
-          background: 'var(--bg-subtle)',
+          flexDirection: 'column',
+          gap: showTestbench ? '10px' : '0',
+          transition: 'all var(--transition-fast)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Sliders size={15} color="var(--brand-primary)" />
-          <span style={{ fontSize: '11px', fontFamily: 'var(--scada-mono-font)', fontWeight: 700, color: 'var(--text-main)', letterSpacing: '0.03em' }}>
-            SCADA TESTBENCH OVERRIDE INTERLOCK:
-          </span>
-          {simMessage && (
-            <span style={{ fontSize: '11px', fontFamily: 'var(--scada-mono-font)', color: 'var(--brand-primary)', fontWeight: 600 }}>
-              {simMessage}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+          onClick={() => setShowTestbench(!showTestbench)}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Sliders size={13} color="var(--brand-primary)" />
+            <span style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-main)' }}>
+              Simulation &amp; Fault Injection Testbench
             </span>
-          )}
+            {simMessage && (
+              <span style={{ fontSize: '11px', color: 'var(--brand-primary)', fontWeight: 500 }}>
+                &bull; {simMessage}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ fontSize: '11px', padding: '3px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowTestbench(!showTestbench)
+            }}
+          >
+            <span>{showTestbench ? 'Collapse Controls' : 'Open Controls'}</span>
+            {showTestbench ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--scada-mono-font)' }}>
-          <button
-            className="btn-secondary"
-            style={{ fontSize: '10.5px', padding: '4px 8px' }}
-            disabled={isSimInjecting}
-            onClick={() => handleSimInject('healthy', 'MTR-775-002')}
+        {showTestbench && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              flexWrap: 'wrap',
+              paddingTop: '8px',
+              borderTop: '1px solid var(--border-subtle)',
+            }}
           >
-            NORMALIZE [HEALTHY]
-          </button>
-          <button
-            className="btn-secondary"
-            style={{ fontSize: '10.5px', padding: '4px 8px', borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }}
-            disabled={isSimInjecting}
-            onClick={() => handleSimInject('warning_temp', 'MTR-775-002')}
-          >
-            INJECT WARN TEMP (55.4°C)
-          </button>
-          <button
-            className="btn-secondary"
-            style={{ fontSize: '10.5px', padding: '4px 8px', borderColor: 'var(--status-critical)', color: 'var(--status-critical)' }}
-            disabled={isSimInjecting}
-            onClick={() => handleSimInject('critical_vib', 'MTR-775-003')}
-          >
-            INJECT CRIT VIB (0.89g)
-          </button>
-          <button
-            className="btn-secondary"
-            style={{ fontSize: '10.5px', padding: '4px 8px', borderColor: 'var(--status-critical)', color: 'var(--status-critical)' }}
-            disabled={isSimInjecting}
-            onClick={() => handleSimInject('overload_current', 'MTR-775-002')}
-          >
-            INJECT HIGH LOAD (4.65A)
-          </button>
-          <button
-            className="btn-secondary"
-            style={{ fontSize: '10.5px', padding: '4px 8px' }}
-            disabled={isSimInjecting}
-            onClick={() => handleSimInject('sensor_disconnected', 'MTR-775-002')}
-          >
-            FAULT DISCONNECT
-          </button>
-        </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Presets:</span>
+            <button
+              className="btn-secondary"
+              style={{ fontSize: '11px', padding: '4px 9px' }}
+              disabled={isSimInjecting}
+              onClick={() => handleSimInject('healthy', 'MTR-775-002')}
+            >
+              Normalize Healthy
+            </button>
+            <button
+              className="btn-secondary"
+              style={{ fontSize: '11px', padding: '4px 9px', color: 'var(--status-warning)', borderColor: 'rgba(245, 158, 11, 0.4)' }}
+              disabled={isSimInjecting}
+              onClick={() => handleSimInject('warning_temp', 'MTR-775-002')}
+            >
+              Warn Temp (55.4°C)
+            </button>
+            <button
+              className="btn-secondary"
+              style={{ fontSize: '11px', padding: '4px 9px', color: 'var(--status-critical)', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+              disabled={isSimInjecting}
+              onClick={() => handleSimInject('critical_vib', 'MTR-775-003')}
+            >
+              Crit Vibration (0.89g)
+            </button>
+            <button
+              className="btn-secondary"
+              style={{ fontSize: '11px', padding: '4px 9px', color: 'var(--status-critical)', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+              disabled={isSimInjecting}
+              onClick={() => handleSimInject('overload_current', 'MTR-775-002')}
+            >
+              Overload Current (4.65A)
+            </button>
+            <button
+              className="btn-secondary"
+              style={{ fontSize: '11px', padding: '4px 9px' }}
+              disabled={isSimInjecting}
+              onClick={() => handleSimInject('sensor_disconnected', 'MTR-775-002')}
+            >
+              Fault Disconnect
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Grid: Fleet Status Table (Left 65%) + Restrained 3D Twin & Recent Alerts (Right 35%) */}
@@ -569,16 +601,16 @@ export const OverviewView: FC<OverviewViewProps> = ({
           <div style={{ overflowX: 'auto' }}>
             <table className="industrial-table">
               <thead>
-                <tr style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10.5px' }}>
-                  <th>ASSET TAG</th>
-                  <th>NODE &amp; BUS</th>
-                  <th>STATUS [IEC 60034]</th>
-                  <th>TEMP [°C]</th>
-                  <th>CURRENT [A RMS]</th>
-                  <th>VIB [g RMS]</th>
-                  <th>POWER [W]</th>
-                  <th>SCADA SYNC</th>
-                  <th style={{ textAlign: 'center' }}>ACTIONS</th>
+                <tr style={{ fontSize: '11px', fontWeight: 600 }}>
+                  <th>Asset Tag</th>
+                  <th>Source</th>
+                  <th>Health Status</th>
+                  <th>Temp (°C)</th>
+                  <th>Current (A)</th>
+                  <th>Vibration (g)</th>
+                  <th>Power (W)</th>
+                  <th>Sync</th>
+                  <th style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -645,9 +677,7 @@ export const OverviewView: FC<OverviewViewProps> = ({
 
                         <td className="tabular-nums" style={{ fontWeight: 600 }}>
                           {s.temperature_c != null ? (
-                            <span style={{ color: s.temperature_c > 50 ? 'var(--status-critical)' : undefined }}>
-                              {s.temperature_c.toFixed(1)}
-                            </span>
+                            <span>{s.temperature_c.toFixed(1)}</span>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>N/A</span>
                           )}
@@ -655,9 +685,7 @@ export const OverviewView: FC<OverviewViewProps> = ({
 
                         <td className="tabular-nums" style={{ fontWeight: 600 }}>
                           {s.current_a != null ? (
-                            <span style={{ color: s.current_a > 4.0 ? 'var(--status-critical)' : undefined }}>
-                              {s.current_a.toFixed(2)}
-                            </span>
+                            <span>{s.current_a.toFixed(2)}</span>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>N/A</span>
                           )}
@@ -665,9 +693,7 @@ export const OverviewView: FC<OverviewViewProps> = ({
 
                         <td className="tabular-nums" style={{ fontWeight: 600 }}>
                           {s.vibration_g_rms != null ? (
-                            <span style={{ color: s.vibration_g_rms > 0.5 ? 'var(--status-critical)' : undefined }}>
-                              {s.vibration_g_rms.toFixed(3)}
-                            </span>
+                            <span>{s.vibration_g_rms.toFixed(3)}</span>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>N/A</span>
                           )}

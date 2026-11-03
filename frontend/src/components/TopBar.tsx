@@ -3,8 +3,8 @@ import {
   Sun,
   Moon,
   Clock,
-  Layers,
   LogOut,
+  Lock,
 } from 'lucide-react'
 import type { NavigationTab, UserProfile, MotorState } from '../types'
 
@@ -42,39 +42,42 @@ export const TopBar: FC<TopBarProps> = ({
   const getTabLabel = (tab: NavigationTab) => {
     switch (tab) {
       case 'overview':
-      case 'landing':
         return 'Overview'
       case 'fleet':
-        return 'Live Motors'
-      case 'analytics':
-        return 'Analytics'
       case 'motors':
-        return 'Motor Management & Provisioning'
+        return 'Motor Fleet'
+      case 'live':
+        return 'Live Monitoring'
+      case 'analytics':
+        return 'Analytics & Diagnostics'
       case 'alerts':
       case 'manager':
-        return 'Alerts & Faults'
+        return 'Alerts & Events'
       case 'maintenance':
       case 'technician':
-        return 'Maintenance Workbench'
+        return 'Work Orders'
       case 'twin':
-        return '3D Spatial Twin'
+        return '3D Digital Twin'
       case 'landing':
-        return '3D Motor Tour & Industrial Showcase'
+        return '3D Motor Tour'
       case 'devices':
-        return 'Device Nodes'
+        return 'ESP32 Devices'
+      case 'users':
+        return 'User Management'
       case 'reports':
-        return 'Operational Reports'
+        return 'Reports'
       case 'settings':
-        return 'Gateway Settings'
+        return 'Settings'
       default:
-        return 'Dashboard'
+        return 'Overview'
     }
   }
 
   const formatTime = (iso?: string) => {
     if (!iso) return 'Waiting...'
     try {
-      const d = new Date(iso)
+      const normalized = !iso.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(iso) ? `${iso}Z` : iso
+      const d = new Date(normalized)
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     } catch {
       return iso
@@ -88,40 +91,41 @@ export const TopBar: FC<TopBarProps> = ({
   return (
     <header className="topbar" style={{ borderBottom: '1px solid var(--border-main)' }}>
       <div className="topbar-left">
-        {/* SCADA Plant Cell Tag & Navigation Path */}
-        <div className="topbar-breadcrumbs" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '12px' }}>
-          <span className="scada-equip-tag" style={{ fontSize: '10px', padding: '2px 6px' }}>PLANT-01 // CELL-A</span>
-          <span className="breadcrumb-separator" style={{ color: 'var(--text-muted)' }}>::</span>
-          <span className="breadcrumb-current" style={{ fontWeight: 700, letterSpacing: '0.02em' }}>
-            {getTabLabel(currentTab).toUpperCase()}
+        {/* Plant Breadcrumb */}
+        <div className="topbar-breadcrumbs" style={{ fontSize: '12px' }}>
+          <span className="scada-equip-tag" style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px' }}>
+            PLANT-01
+          </span>
+          <span className="breadcrumb-separator" style={{ color: 'var(--text-muted)' }}>/</span>
+          <span className="breadcrumb-current" style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+            {getTabLabel(currentTab)}
           </span>
         </div>
 
         {/* Global Motor Selector (Visible in Analytics & 3D Twin) */}
         {(currentTab === 'analytics' || currentTab === 'twin') && motors.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '8px' }}>
-            <span style={{ fontSize: '10px', fontFamily: 'var(--scada-mono-font)', color: 'var(--text-muted)', fontWeight: 700 }}>
-              ASSET TAG:
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
+              Asset:
             </span>
             <select
               value={selectedMotorId || motors[0].motor_id}
               onChange={(e) => onSelectMotor?.(e.target.value)}
               style={{
-                padding: '4px 8px',
-                borderRadius: '3px',
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-sm)',
                 border: '1px solid var(--border-main)',
                 background: 'var(--bg-subtle)',
                 color: 'var(--text-main)',
-                fontSize: '11px',
-                fontFamily: 'var(--scada-mono-font)',
-                fontWeight: 600,
+                fontSize: '11.5px',
+                fontWeight: 500,
                 outline: 'none',
                 cursor: 'pointer',
               }}
             >
               {motors.map((m) => (
                 <option key={m.motor_id} value={m.motor_id}>
-                  {m.motor_id} [{m.source.toUpperCase()}] — {m.latest.inference.health_status.toUpperCase()}
+                  {m.motor_id} [{m.source.toUpperCase()}] &mdash; {m.latest.inference.health_status}
                 </option>
               ))}
             </select>
@@ -130,91 +134,88 @@ export const TopBar: FC<TopBarProps> = ({
       </div>
 
       <div className="topbar-right">
-        {/* Real-time SCADA Annunciator Matrix */}
-        <div className="scada-annunciator-strip" title="SCADA Fleet Health Annunciator Matrix">
-          <div className={`scada-annunciator-tile ${critCount > 0 ? 'crit' : 'norm'}`}>
-            <span className={critCount > 0 ? 'scada-heartbeat-dot' : ''} style={{ background: critCount > 0 ? '#EF4444' : '#10B981', width: 6, height: 6 }} />
-            ALARM: {critCount}
-          </div>
-          <div className={`scada-annunciator-tile ${warnCount > 0 ? 'warn' : 'norm'}`}>
-            WARN: {warnCount}
-          </div>
-          <div className="scada-annunciator-tile norm">
-            NORM: {healthyCount}
-          </div>
+        {/* Fleet Health Indicator */}
+        <div className="topbar-status-wrapper">
+          {critCount > 0 ? (
+            <div
+              className="scada-annunciator-tile crit"
+              title={`${critCount} motor(s) currently in critical alarm`}
+              style={{ cursor: 'default' }}
+            >
+              <span className="scada-heartbeat-dot" style={{ background: '#EF4444', width: 6, height: 6 }} />
+              {critCount} CRITICAL ALARM{critCount > 1 ? 'S' : ''}
+            </div>
+          ) : warnCount > 0 ? (
+            <div
+              className="scada-annunciator-tile warn"
+              title={`${warnCount} motor(s) in warning condition`}
+              style={{ cursor: 'default' }}
+            >
+              <span>▲</span> {warnCount} WARNING{warnCount > 1 ? 'S' : ''}
+            </div>
+          ) : (
+            <div
+              className="scada-annunciator-tile norm"
+              title={`All ${healthyCount} monitored motors operating within nominal parameters`}
+              style={{ cursor: 'default' }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', display: 'inline-block' }} />
+              FLEET NOMINAL ({healthyCount})
+            </div>
+          )}
         </div>
 
-        {/* SCADA Sync Heartbeat & Timestamp */}
-        <div className="topbar-timestamp" title="Live SCADA Telemetry Stream Pacing (100 Hz / Edge Impulse Sync)" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '11px' }}>
-          <span className="scada-heartbeat-dot" />
-          <Clock size={12} />
-          <span className="tabular-nums">SYNC: {formatTime(lastUpdatedIso)}</span>
-        </div>
-
-        {/* Ingested Frames */}
-        <div
-          style={{
-            fontSize: '11px',
-            fontFamily: 'var(--scada-mono-font)',
-            color: 'var(--text-secondary)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-          }}
-          title="Total validated telemetry frames processed since gateway launch"
-        >
-          <Layers size={12} color="var(--text-muted)" />
-          <span>FRAMES:</span>
-          <strong className="tabular-nums" style={{ color: 'var(--text-main)' }}>
-            {totalMessages.toLocaleString()}
-          </strong>
-        </div>
-
-        {/* ESP32 Hardware Status Badge */}
-        <div
-          className={`connection-pill ${esp32HwConnected ? 'online' : ''}`}
-          style={{
-            fontFamily: 'var(--scada-mono-font)',
-            fontSize: '10.5px',
-            background: esp32HwConnected ? 'rgba(59, 130, 246, 0.12)' : undefined,
-            color: esp32HwConnected ? '#60A5FA' : undefined,
-            borderColor: esp32HwConnected ? 'rgba(59, 130, 246, 0.35)' : undefined,
-          }}
-          title={
-            esp32HwConnected
-              ? 'ESP32 Physical Hardware node actively streaming via SoftAP/WiFi'
-              : 'Waiting for ESP32 hardware connection'
-          }
-        >
-          <span className={`connection-dot ${esp32HwConnected ? 'pulse' : ''}`} />
-          <span>{esp32HwConnected ? 'ESP32 HW: ONLINE' : 'ESP32 HW: STANDBY'}</span>
-        </div>
-
-        {/* Gateway WebSocket Connection */}
+        {/* Consolidated Gateway & Node Telemetry Pill */}
         <div
           className={`connection-pill ${wsConnected ? 'online' : (!currentUser ? 'reconnecting' : 'offline')}`}
-          style={{
-            fontFamily: 'var(--scada-mono-font)',
-            fontSize: '10.5px',
-            background: !wsConnected && !currentUser ? 'rgba(245, 158, 11, 0.12)' : undefined,
-            color: !wsConnected && !currentUser ? '#F59E0B' : undefined,
-            borderColor: !wsConnected && !currentUser ? 'rgba(245, 158, 11, 0.35)' : undefined,
-          }}
+          style={{ fontSize: '11px', padding: '4px 9px', display: 'flex', alignItems: 'center', gap: '6px' }}
           title={
             wsConnected
-              ? 'WebSocket OT telemetry feed active (Authenticated Live Bus)'
+              ? 'Telemetry bus live (100 Hz pacing)'
               : !currentUser
-              ? 'Gateway secured — Sign In as Technician or Manager to stream live bus'
-              : 'Gateway feed disconnected'
+              ? 'Gateway secured — sign in to activate telemetry bus'
+              : 'Gateway feed offline'
           }
         >
           <span className={`connection-dot ${wsConnected ? 'pulse' : ''}`} />
-          <span>
-            {wsConnected
-              ? 'OT GW: SYNCED'
-              : !currentUser
-              ? 'OT GW: SECURED'
-              : 'OT GW: OFFLINE'}
+          <span style={{ fontWeight: 600 }}>
+            {wsConnected ? 'LIVE BUS' : (!currentUser ? 'SECURED' : 'OFFLINE')}
+          </span>
+          {esp32HwConnected && (
+            <span
+              style={{
+                fontSize: '9.5px',
+                padding: '1px 5px',
+                borderRadius: '2px',
+                background: 'var(--brand-primary)',
+                color: '#fff',
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+              }}
+              title="ESP32 Physical Hardware node connected and streaming"
+            >
+              ESP32
+            </span>
+          )}
+        </div>
+
+        {/* Pacing, Time & Telemetry Frames */}
+        <div
+          title={`Last frame: ${formatTime(lastUpdatedIso)} · ${totalMessages.toLocaleString()} frames received`}
+          style={{
+            fontSize: '11px',
+            color: 'var(--text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '0 4px',
+          }}
+        >
+          <Clock size={11} style={{ opacity: 0.7 }} />
+          <span className="tabular-nums">{formatTime(lastUpdatedIso)}</span>
+          <span style={{ opacity: 0.35 }}>•</span>
+          <span className="tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+            {totalMessages > 9999 ? `${(totalMessages / 1000).toFixed(1)}k` : totalMessages.toLocaleString()} frames
           </span>
         </div>
 
@@ -232,10 +233,18 @@ export const TopBar: FC<TopBarProps> = ({
         {!currentUser ? (
           <button
             className="btn-primary-glow"
-            style={{ padding: '5px 12px', fontSize: '11px', fontFamily: 'var(--scada-mono-font)' }}
+            style={{
+              padding: '6px 14px',
+              fontSize: '11px',
+              fontFamily: 'var(--scada-mono-font)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              letterSpacing: '0.04em',
+            }}
             onClick={onOpenLogin}
           >
-            🔒 AUTHORIZED SIGN IN
+            <Lock size={12} /> AUTHORIZED SIGN IN
           </button>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

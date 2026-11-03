@@ -11,9 +11,15 @@
  * - Toast notification system for alert events
  */
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import type { FC } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, type FC } from 'react'
 import type { AlertItem, UserProfile, MotorState, TechnicianUser } from '../types'
+import { PageHeader } from './common/PageHeader'
+import { StatCard } from './common/StatCard'
+import { StatusBadge } from './common/StatusBadge'
+import { EmptyState } from './common/EmptyState'
+import { LoadingSkeleton } from './common/LoadingSkeleton'
+import { ErrorBanner } from './common/ErrorBanner'
+import { Clock, Flame, Eye, CheckCircle2, ShieldAlert } from 'lucide-react'
 
 interface AlertsViewProps {
   alerts: AlertItem[]
@@ -108,6 +114,12 @@ const TRIGGER_TYPE_TO_CATEGORY: Record<string, string> = {
   SENSOR_UNCALIBRATED: 'SENSOR_DIAGNOSTIC',
   INFERENCE_DIAGNOSTIC_FAILURE: 'SENSOR_DIAGNOSTIC',
   DEVICE_OFFLINE: 'CONNECTIVITY',
+}
+
+export const parseSafeUtcDate = (iso?: string | null): Date => {
+  if (!iso) return new Date()
+  const normalized = !iso.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(iso) ? `${iso}Z` : iso
+  return new Date(normalized)
 }
 
 export const AlertsView: FC<AlertsViewProps> = ({
@@ -237,7 +249,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
     const unassigned = active.filter((a) => !a.assigned_to)
     const avgResponseMs = acked
       .filter((a) => a.acknowledged_at && a.triggered_at)
-      .map((a) => new Date(a.acknowledged_at!).getTime() - new Date(a.triggered_at).getTime())
+      .map((a) => parseSafeUtcDate(a.acknowledged_at).getTime() - parseSafeUtcDate(a.triggered_at).getTime())
       .reduce((sum, val, _, arr) => sum + val / arr.length, 0)
 
     return {
@@ -278,12 +290,14 @@ export const AlertsView: FC<AlertsViewProps> = ({
       )
     }
 
-    // Sort: ACTIVE first, then by triggered_at descending
+    // Sort: ACTIVE first, then by most recent observation / trigger time
     result.sort((a, b) => {
       const stateOrder: Record<string, number> = { ACTIVE: 0, ACKNOWLEDGED: 1, RESOLVED: 2 }
       const stateDiff = (stateOrder[a.state] ?? 3) - (stateOrder[b.state] ?? 3)
       if (stateDiff !== 0) return stateDiff
-      return new Date(b.triggered_at).getTime() - new Date(a.triggered_at).getTime()
+      const timeB = parseSafeUtcDate(b.last_observed_at || b.triggered_at).getTime()
+      const timeA = parseSafeUtcDate(a.last_observed_at || a.triggered_at).getTime()
+      return timeB - timeA
     })
 
     return result
@@ -353,7 +367,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
   }
 
   const formatTimeAgo = (iso: string) => {
-    const diff = currentTime - new Date(iso).getTime()
+    const diff = currentTime - parseSafeUtcDate(iso).getTime()
     const mins = Math.floor(diff / 60000)
     if (mins < 1) return 'just now'
     if (mins < 60) return `${mins}m ago`
@@ -386,80 +400,83 @@ export const AlertsView: FC<AlertsViewProps> = ({
       </div>
 
       {/* ── HEADER ── */}
-      <header className="alerts-header">
-        <div className="alerts-header__left">
-          <div className="alerts-header__pretitle">
+      <PageHeader
+        title="Alert Monitor & Dispatch"
+        subtitle="Live threshold violations, TinyML fault detections, and device health alerts across the entire motor fleet."
+        badge={
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <span className="alerts-header__pulse" />
-            REAL-TIME ALERT COMMAND CENTER
+            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--brand-primary)' }}>
+              REAL-TIME COMMAND CENTER
+            </span>
           </div>
-          <h1 className="alerts-header__title">Alert Monitor & Dispatch</h1>
-          <p className="alerts-header__desc">
-            Live threshold violations, TinyML fault detections, and device health alerts across the entire motor fleet.
-          </p>
-        </div>
-        <div className="alerts-header__actions">
-          <button
-            className={`alerts-btn alerts-btn--outline ${showTimeline ? 'active' : ''}`}
-            onClick={() => setShowTimeline(!showTimeline)}
-          >
-            📊 {showTimeline ? 'Hide' : 'Show'} Timeline
-          </button>
-          {liveAlertCount > 0 && (
+        }
+        actions={
+          <div className="alerts-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
-              className="alerts-btn alerts-btn--glow"
-              onClick={() => { setLiveAlertCount(0); setFilterTab('ACTIVE') }}
+              className={`alerts-btn alerts-btn--outline ${showTimeline ? 'active' : ''}`}
+              onClick={() => setShowTimeline(!showTimeline)}
+              aria-label={showTimeline ? 'Hide Timeline' : 'Show Timeline'}
             >
-              🔔 {liveAlertCount} New
+              📊 {showTimeline ? 'Hide' : 'Show'} Timeline
             </button>
-          )}
-        </div>
-      </header>
+            {liveAlertCount > 0 && (
+              <button
+                className="alerts-btn alerts-btn--glow"
+                onClick={() => { setLiveAlertCount(0); setFilterTab('ACTIVE') }}
+                aria-label={`${liveAlertCount} new alerts`}
+              >
+                🔔 {liveAlertCount} New
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {/* ── STATISTICS CARDS ── */}
-      <div className="alerts-stats-grid">
-        <div className={`alerts-stat-card ${stats.criticalActive > 0 ? 'alerts-stat-card--critical' : ''}`}>
-          <div className="alerts-stat-card__icon">🚨</div>
-          <div className="alerts-stat-card__content">
-            <span className="alerts-stat-card__value">{stats.criticalActive}</span>
-            <span className="alerts-stat-card__label">Critical Active</span>
-          </div>
-          {stats.criticalActive > 0 && <div className="alerts-stat-card__pulse-ring" />}
-        </div>
-        <div className="alerts-stat-card alerts-stat-card--active">
-          <div className="alerts-stat-card__icon">🔥</div>
-          <div className="alerts-stat-card__content">
-            <span className="alerts-stat-card__value">{stats.active}</span>
-            <span className="alerts-stat-card__label">Active Alerts</span>
-          </div>
-        </div>
-        <div className="alerts-stat-card alerts-stat-card--pending">
-          <div className="alerts-stat-card__icon">⏳</div>
-          <div className="alerts-stat-card__content">
-            <span className="alerts-stat-card__value">{stats.unassigned}</span>
-            <span className="alerts-stat-card__label">Unassigned</span>
-          </div>
-        </div>
-        <div className="alerts-stat-card alerts-stat-card--ack">
-          <div className="alerts-stat-card__icon">👁️</div>
-          <div className="alerts-stat-card__content">
-            <span className="alerts-stat-card__value">{stats.acknowledged}</span>
-            <span className="alerts-stat-card__label">Acknowledged</span>
-          </div>
-        </div>
-        <div className="alerts-stat-card alerts-stat-card--resolved">
-          <div className="alerts-stat-card__icon">✅</div>
-          <div className="alerts-stat-card__content">
-            <span className="alerts-stat-card__value">{stats.resolved}</span>
-            <span className="alerts-stat-card__label">Resolved</span>
-          </div>
-        </div>
-        <div className="alerts-stat-card alerts-stat-card--response">
-          <div className="alerts-stat-card__icon">⏱️</div>
-          <div className="alerts-stat-card__content">
-            <span className="alerts-stat-card__value">{formatDuration(stats.avgResponseMs)}</span>
-            <span className="alerts-stat-card__label">Avg Response</span>
-          </div>
-        </div>
+      <div className="alerts-stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        <StatCard
+          label="Critical Active"
+          value={stats.criticalActive}
+          status={stats.criticalActive > 0 ? 'critical' : 'neutral'}
+          subtext={stats.criticalActive > 0 ? 'Requires immediate action' : 'No critical alarms'}
+          icon={<ShieldAlert size={16} />}
+        />
+        <StatCard
+          label="Active Alerts"
+          value={stats.active}
+          status={stats.active > 0 ? 'warning' : 'healthy'}
+          subtext="Unresolved incidents"
+          icon={<Flame size={16} />}
+        />
+        <StatCard
+          label="Unassigned"
+          value={stats.unassigned}
+          status={stats.unassigned > 0 ? 'warning' : 'neutral'}
+          subtext="Awaiting technician dispatch"
+          icon={<Clock size={16} />}
+        />
+        <StatCard
+          label="Acknowledged"
+          value={stats.acknowledged}
+          status="info"
+          subtext="Under technical review"
+          icon={<Eye size={16} />}
+        />
+        <StatCard
+          label="Resolved"
+          value={stats.resolved}
+          status="healthy"
+          subtext="Past 24h normalized"
+          icon={<CheckCircle2 size={16} />}
+        />
+        <StatCard
+          label="Avg Response"
+          value={formatDuration(stats.avgResponseMs)}
+          status="neutral"
+          subtext="Dispatch turnaround"
+          icon={<Clock size={16} />}
+        />
       </div>
 
       {/* ── RBAC Warning ── */}
@@ -553,7 +570,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
                 <div className="alerts-timeline__dot" />
                 <div className="alerts-timeline__connector" />
                 <div className="alerts-timeline__content">
-                  <div className="alerts-timeline__time">{formatTimeAgo(alert.triggered_at)}</div>
+                  <div className="alerts-timeline__time">{formatTimeAgo(alert.last_observed_at || alert.triggered_at)}</div>
                   <div className="alerts-timeline__label">
                     {TRIGGER_TYPE_ICONS[alert.trigger_type] || '⚠️'}{' '}
                     {TRIGGER_TYPE_LABELS[alert.trigger_type] || alert.trigger_type}
@@ -569,61 +586,28 @@ export const AlertsView: FC<AlertsViewProps> = ({
       {/* ── ALERT CARDS ── */}
       <div className="alerts-list" ref={alertListRef}>
         {loadingAlerts ? (
-          <div className="alerts-loading" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-secondary, #94a3b8)' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '1rem', animation: 'spin 1.5s linear infinite' }}>⏳</div>
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary, #f8fafc)', marginBottom: '0.5rem' }}>
-              Loading Active Alerts...
-            </h3>
-            <p style={{ fontSize: '0.9rem', maxWidth: '420px', margin: '0 auto' }}>
-              Synchronizing active alarm conditions with the industrial gateway API.
-            </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '24px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-secondary)' }}>
+              <div style={{ width: 18, height: 18, border: '2px solid var(--border-main)', borderTopColor: 'var(--brand-primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              <span style={{ fontSize: '12px', fontWeight: 600 }}>SYNCHRONIZING ACTIVE ALARMS WITH GATEWAY...</span>
+            </div>
+            <LoadingSkeleton lines={3} height={80} />
           </div>
         ) : alertFetchError ? (
-          <div
-            className="alerts-error-banner"
-            style={{
-              padding: '2.5rem 1.5rem',
-              borderRadius: '12px',
-              background: 'rgba(239, 68, 68, 0.08)',
-              border: '1px solid rgba(239, 68, 68, 0.35)',
-              textAlign: 'center',
-              margin: '1rem 0',
-            }}
-          >
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>⚠️</div>
-            <h3 style={{ color: '#ef4444', fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-              Alerts Gateway Unavailable
-            </h3>
-            <p style={{ color: 'var(--text-secondary, #cbd5e1)', fontSize: '0.92rem', maxWidth: '520px', margin: '0 auto 1.5rem' }}>
-              {alertFetchError}. Safety and threshold exceedance status cannot be verified. Do not assume equipment is safe.
-            </p>
-            {onRetryFetchAlerts && (
-              <button
-                className="alerts-btn alerts-btn--primary"
-                onClick={onRetryFetchAlerts}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.6rem 1.5rem',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                <span>🔄</span> Retry Connection
-              </button>
-            )}
-          </div>
+          <ErrorBanner
+            message={`Alerts Gateway Unavailable: ${alertFetchError}. Safety and threshold exceedance status cannot be verified.`}
+            onRetry={onRetryFetchAlerts}
+          />
         ) : filteredAlerts.length === 0 ? (
-          <div className="alerts-empty">
-            <div className="alerts-empty__icon">✓</div>
-            <h3>{filterTab === 'ALL' && severityFilter === 'ALL' && !searchQuery ? 'No active alerts' : 'No Alerts Match Current Filters'}</h3>
-            <p>
-              {filterTab === 'ALL' && severityFilter === 'ALL' && !searchQuery
-                ? 'All motor telemetry and ML health classifications are currently within safe operational limits.'
-                : 'Try adjusting your filters or search query to find alerts.'}
-            </p>
-          </div>
+          <EmptyState
+            icon={<CheckCircle2 size={36} color="var(--status-healthy)" />}
+            title={filterTab === 'ALL' && severityFilter === 'ALL' && !searchQuery ? 'No Active Alarms in Fleet' : 'No Alerts Match Current Filter Criteria'}
+            description={
+              filterTab === 'ALL' && severityFilter === 'ALL' && !searchQuery
+                ? 'All RS-775 motor telemetry streams and TinyML inference diagnostics are running within nominal threshold limits.'
+                : 'Try adjusting your severity pills, state tabs, or search query to locate historical records.'
+            }
+          />
         ) : (
           filteredAlerts.map((alert) => {
             const isExpanded = expandedAlertId === alert.alert_id
@@ -671,9 +655,11 @@ export const AlertsView: FC<AlertsViewProps> = ({
                         </span>
                       )
                     })()}
-                    <span className={`alerts-badge alerts-badge--state-${alert.state.toLowerCase()}`}>
-                      ● {alert.state}
-                    </span>
+                    <StatusBadge
+                      status={alert.state === 'ACTIVE' ? 'critical' : alert.state === 'ACKNOWLEDGED' ? 'info' : 'healthy'}
+                      label={alert.state}
+                      size="sm"
+                    />
                     {alert.priority && (
                       <span className={`alerts-badge alerts-badge--priority-${alert.priority.toLowerCase()}`}>
                         P: {alert.priority}
@@ -685,7 +671,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
                   </div>
                   <div className="alerts-card__meta">
                     <span className="alerts-card__id">{alert.alert_id}</span>
-                    <span className="alerts-card__time">{formatTimeAgo(alert.triggered_at)}</span>
+                    <span className="alerts-card__time">{formatTimeAgo(alert.last_observed_at || alert.triggered_at)}</span>
                   </div>
                 </div>
 
@@ -761,7 +747,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
                               👤 ASSIGNED TO: <strong>{alert.assigned_to}</strong>
                             </span>
                             <span className="alerts-assignment-box__time">
-                              {alert.assigned_at ? new Date(alert.assigned_at).toLocaleString() : '—'}
+                              {alert.assigned_at ? parseSafeUtcDate(alert.assigned_at).toLocaleString() : '—'}
                             </span>
                           </div>
                           {alert.instructions && (
@@ -779,7 +765,7 @@ export const AlertsView: FC<AlertsViewProps> = ({
                         <div className="alerts-assignment-box alerts-assignment-box--resolved">
                           <div className="alerts-assignment-box__header">
                             <span>✓ RESOLVED BY: <strong>{alert.resolved_by || '—'}</strong></span>
-                            <span>{alert.resolved_at ? new Date(alert.resolved_at).toLocaleString() : ''}</span>
+                            <span>{alert.resolved_at ? parseSafeUtcDate(alert.resolved_at).toLocaleString() : ''}</span>
                           </div>
                           {alert.resolution_notes && (
                             <div className="alerts-assignment-box__notes">

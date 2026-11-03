@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react'
 import type { MotorState, AlertItem } from '../types'
+import { PageHeader } from './common/PageHeader'
 
 interface ReportsViewProps {
   motors: MotorState[]
@@ -63,76 +64,129 @@ export const ReportsView: FC<ReportsViewProps> = ({ motors, alerts }) => {
     return Math.max(...validVibs).toFixed(3)
   }, [filteredMotors])
 
-  // CSV Export
-  const handleExportCSV = () => {
+  const [isExporting, setIsExporting] = useState<boolean>(false)
+
+  // CSV Export with backend historical database integration
+  const handleExportCSV = async () => {
+    setIsExporting(true)
     let headers: string[] = []
     let rows: (string | number)[][] = []
     const nowIso = new Date().toISOString().split('T')[0]
 
-    if (reportType === 'alert_history') {
-      headers = [
-        'Alert_ID',
-        'Motor_ID',
-        'Device_ID',
-        'Severity',
-        'Trigger_Type',
-        'Trigger_Value',
-        'Limit',
-        'Unit',
-        'State',
-        'Triggered_At',
-        'Assigned_To',
-        'Resolved_By',
-      ]
-      rows = filteredAlerts.map((a) => [
-        `"${a.alert_id}"`,
-        `"${a.motor_id}"`,
-        `"${a.device_id}"`,
-        `"${a.severity}"`,
-        `"${a.trigger_type}"`,
-        a.trigger_value,
-        a.threshold_limit,
-        `"${a.unit}"`,
-        `"${a.state}"`,
-        `"${a.triggered_at}"`,
-        `"${a.assigned_to || ''}"`,
-        `"${a.resolved_by || ''}"`,
-      ])
-    } else {
-      headers = [
-        'Timestamp_UTC',
-        'Motor_ID',
-        'Device_ID',
-        'Source',
-        'Temp_C',
-        'Current_A',
-        'Vib_g_RMS',
-        'Health_Status',
-      ]
-      rows = filteredMotors.flatMap((m) =>
-        m.history.map((h) => [
-          `"${h.timestamp}"`,
-          `"${m.motor_id}"`,
-          `"${m.device_id}"`,
-          `"${m.source}"`,
-          h.temperature ?? '',
-          h.current ?? '',
-          h.vibration ?? '',
-          `"${h.health_status}"`,
+    try {
+      if (reportType === 'alert_history') {
+        headers = [
+          'Alert_ID',
+          'Motor_ID',
+          'Device_ID',
+          'Severity',
+          'Trigger_Type',
+          'Trigger_Value',
+          'Limit',
+          'Unit',
+          'State',
+          'Triggered_At',
+          'Assigned_To',
+          'Resolved_By',
+        ]
+        rows = filteredAlerts.map((a) => [
+          `"${a.alert_id}"`,
+          `"${a.motor_id}"`,
+          `"${a.device_id}"`,
+          `"${a.severity}"`,
+          `"${a.trigger_type}"`,
+          a.trigger_value,
+          a.threshold_limit,
+          `"${a.unit}"`,
+          `"${a.state}"`,
+          `"${a.triggered_at}"`,
+          `"${a.assigned_to || ''}"`,
+          `"${a.resolved_by || ''}"`,
         ])
-      )
-    }
+      } else {
+        headers = [
+          'Timestamp_UTC',
+          'Motor_ID',
+          'Device_ID',
+          'Source',
+          'Temp_C',
+          'Current_A',
+          'Vib_g_RMS',
+          'Health_Status',
+        ]
 
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n')
-    const encodedUri = encodeURI(csvContent)
-    const link = document.createElement('a')
-    link.href = encodedUri
-    link.download = `MotorGuard_${reportType}_Report_${nowIso}.csv`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+        // Fetch from backend historical endpoint if looking for deep history
+        let fetchedHistorical: any[] = []
+        try {
+          const token = localStorage.getItem('motorguard_auth_token')
+          const reqHeaders: Record<string, string> = {}
+          if (token) reqHeaders['Authorization'] = `Bearer ${token}`
+
+          const now = new Date()
+          let startTimeIso: string | undefined
+          if (timePeriod === '24h') startTimeIso = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+          else if (timePeriod === '7d') startTimeIso = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+          else if (timePeriod === '30d') startTimeIso = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+          let queryUrl = `/api/v1/telemetry/historical?limit=1000`
+          if (selectedMotorId !== 'ALL') {
+            queryUrl += `&motor_id=${encodeURIComponent(selectedMotorId)}`
+          }
+          if (startTimeIso) {
+            queryUrl += `&start_time=${encodeURIComponent(startTimeIso)}`
+          }
+
+          const res = await fetch(queryUrl, { headers: reqHeaders })
+          if (res.ok) {
+            const data = await res.json()
+            if (data && Array.isArray(data.telemetry) && data.telemetry.length > 0) {
+              fetchedHistorical = data.telemetry
+            }
+          }
+        } catch {
+          // Graceful fallback to client in-memory buffer if offline or unauthenticated
+        }
+
+        if (fetchedHistorical.length > 0) {
+          rows = fetchedHistorical.map((doc) => [
+            `"${doc.timestamp || doc.server_received_at || ''}"`,
+            `"${doc.motor_id || ''}"`,
+            `"${doc.device_id || ''}"`,
+            `"${doc.source || 'hardware'}"`,
+            doc.sensors?.temperature_c ?? '',
+            doc.sensors?.current_a ?? '',
+            doc.sensors?.vibration_g_rms ?? '',
+            `"${doc.inference?.health_status || 'healthy'}"`,
+          ])
+        } else {
+          rows = filteredMotors.flatMap((m) =>
+            m.history.map((h) => [
+              `"${h.timestamp}"`,
+              `"${m.motor_id}"`,
+              `"${m.device_id}"`,
+              `"${m.source}"`,
+              h.temperature ?? '',
+              h.current ?? '',
+              h.vibration ?? '',
+              `"${h.health_status}"`,
+            ])
+          )
+        }
+      }
+
+      const csvContent =
+        'data:text/csv;charset=utf-8,' +
+        [headers.join(','), ...rows.map((e) => e.join(','))].join('\n')
+      const encodedUri = encodeURI(csvContent)
+      const link = document.createElement('a')
+      link.href = encodedUri
+      link.download = `MotorGuard_${reportType}_Report_${nowIso}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   // PDF / Printable Report Export
@@ -142,27 +196,29 @@ export const ReportsView: FC<ReportsViewProps> = ({ motors, alerts }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Page Header */}
-      <div className="page-header">
-        <div className="page-title-group">
-          <h2 className="page-title">Industrial Operations &amp; Compliance Reports</h2>
-          <p className="page-description">
-            Audit-grade plant reports, ISO 10816 vibration compliance logs, shift transitions, and alarm histories.
-          </p>
-        </div>
+      <PageHeader
+        title="Industrial Operations & Compliance Reports"
+        subtitle="Audit-grade plant reports, ISO 10816 vibration compliance logs, shift transitions, and alarm histories."
+        actions={
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button className="btn-secondary" onClick={handlePrintReport} aria-label="Print or save report as PDF">
+              <Printer size={14} />
+              <span>Print / Save PDF</span>
+            </button>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="btn-secondary" onClick={handlePrintReport}>
-            <Printer size={14} />
-            <span>Print / Save PDF</span>
-          </button>
-
-          <button className="btn-primary" onClick={handleExportCSV}>
-            <FileSpreadsheet size={14} />
-            <span>Export CSV Dataset</span>
-          </button>
-        </div>
-      </div>
+            <button
+              className="btn-primary"
+              onClick={handleExportCSV}
+              disabled={isExporting}
+              aria-label="Export dataset to CSV file"
+              style={{ opacity: isExporting ? 0.7 : 1, cursor: isExporting ? 'wait' : 'pointer' }}
+            >
+              <FileSpreadsheet size={14} />
+              <span>{isExporting ? 'Querying Historical Data...' : 'Export CSV Dataset'}</span>
+            </button>
+          </div>
+        }
+      />
 
       {/* Report Template Selector & Filter Controls */}
       <div className="card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
