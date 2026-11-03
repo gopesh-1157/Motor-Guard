@@ -22,6 +22,11 @@ import {
 } from 'lucide-react'
 import type { DashboardStats, MotorState, AlertItem, NavigationTab } from '../types'
 import { Motor3DViewer } from './Motor3DViewer'
+import { PageHeader } from './common/PageHeader'
+import { StatCard } from './common/StatCard'
+import { StatusBadge } from './common/StatusBadge'
+import { EmptyState } from './common/EmptyState'
+import { ErrorBanner } from './common/ErrorBanner'
 
 interface OverviewViewProps {
   stats: DashboardStats
@@ -213,209 +218,171 @@ export const OverviewView: FC<OverviewViewProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* Error Banner if alert fetch failed */}
+      {alertFetchError && (
+        <ErrorBanner message={`Failed to load alert telemetry: ${alertFetchError}`} />
+      )}
+
       {/* 1. Page Header */}
-      <div className="page-header" style={{ marginBottom: 0 }}>
-        <div className="page-title-group">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h2 className="page-title">Plant Overview</h2>
+      <PageHeader
+        title="Plant Overview"
+        subtitle="Continuous condition monitoring, Edge Impulse anomaly classification, and fleet health telemetry."
+        badge={
+          <StatusBadge
+            status={wsConnected ? 'healthy' : 'offline'}
+            label={wsConnected ? 'LIVE TELEMETRY' : 'HISTORICAL / OFFLINE'}
+          />
+        }
+        actions={
+          <div className="page-actions-group" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {/* Facility Selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>SITE:</span>
+              <select
+                value={facility}
+                onChange={(e) => setFacility(e.target.value)}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-main)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--text-main)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="Facility Alpha — Plant Line 1">Facility Alpha — Line 1 (Packaging)</option>
+                <option value="Facility Beta — Plant Line 2">Facility Beta — Line 2 (Extrusion)</option>
+                <option value="Lab A — Engineering Testbench">Lab A — Engineering Testbench</option>
+              </select>
+            </div>
+
+            {/* Time Range Selector */}
+            <div className="segmented-control">
+              {(['live', '15m', '1h', '24h'] as const).map((r) => (
+                <button
+                  key={r}
+                  className={`segmented-btn ${timeRange === r ? 'active' : ''}`}
+                  onClick={() => setTimeRange(r)}
+                >
+                  {r.toUpperCase()}
+                </button>
+              ))}
+            </div>
+
+            {/* Timestamp and Refresh */}
             <div
-              className={`connection-pill ${wsConnected ? 'online' : 'offline'}`}
-              style={{ fontSize: '11px', padding: '3px 8px' }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '11px',
+                color: 'var(--text-muted)',
+                padding: '4px 8px',
+                background: 'var(--bg-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border-subtle)',
+              }}
             >
-              <span className={`connection-dot ${wsConnected ? 'pulse' : ''}`} />
-              <span>{wsConnected ? 'LIVE TELEMETRY' : 'HISTORICAL / OFFLINE'}</span>
+              <Clock size={12} />
+              <span className="tabular-nums">Updated: {formatTimestamp(lastUpdatedIso)}</span>
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  padding: '2px',
+                }}
+                title="Refresh telemetry"
+              >
+                <RotateCw size={11} />
+              </button>
             </div>
           </div>
-          <p className="page-description">
-            Continuous condition monitoring, Edge Impulse anomaly classification, and fleet health telemetry.
-          </p>
-        </div>
-
-        <div className="page-actions-group" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Facility Selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>SITE:</span>
-            <select
-              value={facility}
-              onChange={(e) => setFacility(e.target.value)}
-              style={{
-                padding: '5px 10px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--border-main)',
-                background: 'var(--bg-card)',
-                color: 'var(--text-main)',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              <option value="Facility Alpha — Plant Line 1">Facility Alpha — Line 1 (Packaging)</option>
-              <option value="Facility Beta — Plant Line 2">Facility Beta — Line 2 (Extrusion)</option>
-              <option value="Lab A — Engineering Testbench">Lab A — Engineering Testbench</option>
-            </select>
-          </div>
-
-          {/* Time Range Selector */}
-          <div className="segmented-control">
-            {(['live', '15m', '1h', '24h'] as const).map((r) => (
-              <button
-                key={r}
-                className={`segmented-btn ${timeRange === r ? 'active' : ''}`}
-                onClick={() => setTimeRange(r)}
-              >
-                {r.toUpperCase()}
-              </button>
-            ))}
-          </div>
-
-          {/* Timestamp and Refresh */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '11px',
-              color: 'var(--text-muted)',
-              padding: '4px 8px',
-              background: 'var(--bg-subtle)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <Clock size={12} />
-            <span className="tabular-nums">Updated: {formatTimestamp(lastUpdatedIso)}</span>
-            <button
-              onClick={() => window.location.reload()}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-muted)',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                padding: '2px',
-              }}
-              title="Refresh telemetry"
-            >
-              <RotateCw size={11} />
-            </button>
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* 2. Top Fleet Summary KPI Row */}
       <div className="kpi-summary-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-        {/* Metric 1: Total Registered Motors */}
-        <div
-          className={`kpi-summary-card ${statusFilter === 'all' && connectionFilter === 'all' ? 'active' : ''}`}
+        <StatCard
+          label="Total Drives"
+          value={stats.totalMotors}
+          subtext="Monitored units"
+          icon={<Activity size={13} color="var(--brand-primary)" />}
           onClick={() => {
             setStatusFilter('all')
             setConnectionFilter('all')
           }}
-          title="Filter all registered drive motors"
-        >
-          <div className="kpi-header">
-            <span>Total Drives</span>
-            <Activity size={13} color="var(--brand-primary)" />
-          </div>
-          <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.totalMotors}</span>
-          </div>
-          <span className="kpi-subtext">Monitored units</span>
-        </div>
+          className={statusFilter === 'all' && connectionFilter === 'all' ? 'active' : ''}
+        />
 
-        {/* Metric 2: Healthy Motors */}
-        <div
-          className={`kpi-summary-card healthy ${statusFilter === 'healthy' ? 'active' : ''}`}
+        <StatCard
+          label="Nominal"
+          value={stats.healthyCount}
+          subtext="Operating in range"
+          status="healthy"
+          icon={<CheckCircle size={13} color="var(--status-healthy)" />}
           onClick={() => {
             setStatusFilter('healthy')
             setConnectionFilter('all')
           }}
-          title="Filter healthy state motors"
-        >
-          <div className="kpi-header">
-            <span>Nominal</span>
-            <CheckCircle size={13} color="var(--status-healthy)" />
-          </div>
-          <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.healthyCount}</span>
-          </div>
-          <span className="kpi-subtext">Operating in range</span>
-        </div>
+          className={statusFilter === 'healthy' ? 'active' : ''}
+        />
 
-        {/* Metric 3: Warning Motors */}
-        <div
-          className={`kpi-summary-card warning ${statusFilter === 'warning' ? 'active' : ''}`}
+        <StatCard
+          label="Advisory"
+          value={stats.warningCount}
+          subtext="Thermal / vibration trip"
+          status="warning"
+          icon={<AlertTriangle size={13} color="var(--status-warning)" />}
           onClick={() => {
             setStatusFilter('warning')
             setConnectionFilter('all')
           }}
-          title="Filter warning state motors"
-        >
-          <div className="kpi-header">
-            <span>Advisory</span>
-            <AlertTriangle size={13} color="var(--status-warning)" />
-          </div>
-          <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.warningCount}</span>
-          </div>
-          <span className="kpi-subtext">Thermal / vibration trip</span>
-        </div>
+          className={statusFilter === 'warning' ? 'active' : ''}
+        />
 
-        {/* Metric 4: Critical Motors */}
-        <div
-          className={`kpi-summary-card critical ${statusFilter === 'critical' ? 'active' : ''}`}
+        <StatCard
+          label="Critical Fault"
+          value={stats.criticalCount}
+          subtext="Intervention required"
+          status="critical"
+          icon={<XCircle size={13} color="var(--status-critical)" />}
           onClick={() => {
             setStatusFilter('critical')
             setConnectionFilter('all')
           }}
-          title="Filter critical fault motors"
-        >
-          <div className="kpi-header">
-            <span>Critical Fault</span>
-            <XCircle size={13} color="var(--status-critical)" />
-          </div>
-          <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.criticalCount}</span>
-          </div>
-          <span className="kpi-subtext">Intervention required</span>
-        </div>
+          className={statusFilter === 'critical' ? 'active' : ''}
+        />
 
-        {/* Metric 5: Offline Motors */}
-        <div
-          className={`kpi-summary-card ${connectionFilter === 'offline' ? 'active' : ''}`}
+        <StatCard
+          label="Offline"
+          value={stats.offlineCount}
+          subtext="Heartbeat lost"
+          status="offline"
+          icon={<WifiOff size={13} color="var(--status-offline)" />}
           onClick={() => {
             setConnectionFilter('offline')
             setStatusFilter('all')
           }}
-          title="Filter offline motors"
-        >
-          <div className="kpi-header">
-            <span>Offline</span>
-            <WifiOff size={13} color="var(--status-offline)" />
-          </div>
-          <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.offlineCount}</span>
-          </div>
-          <span className="kpi-subtext">Heartbeat lost</span>
-        </div>
+          className={connectionFilter === 'offline' ? 'active' : ''}
+        />
 
-        {/* Metric 6: Connected ESP32 Devices */}
-        <div
-          className={`kpi-summary-card hardware ${sourceFilter === 'hardware' ? 'active' : ''}`}
+        <StatCard
+          label="ESP32 Node"
+          value={stats.hardwareCount ?? 0}
+          subtext={stats.esp32ApConnected ? 'Node online' : 'Standby / WiFi'}
+          status="info"
+          icon={<Radio size={13} color="var(--status-hardware)" />}
           onClick={() => {
             setSourceFilter(sourceFilter === 'hardware' ? 'all' : 'hardware')
           }}
-          title="Filter physical hardware ESP32 nodes"
-        >
-          <div className="kpi-header">
-            <span>ESP32 Node</span>
-            <Radio size={13} color="var(--status-hardware)" />
-          </div>
-          <div className="kpi-value-row">
-            <span className="kpi-value tabular-nums">{stats.hardwareCount ?? 0}</span>
-          </div>
-          <span className="kpi-subtext">{stats.esp32ApConnected ? 'Node online' : 'Standby / WiFi'}</span>
-        </div>
+          className={sourceFilter === 'hardware' ? 'active hardware' : 'hardware'}
+        />
       </div>
 
       {/* Simulator Test Controls Drawer */}
@@ -616,8 +583,12 @@ export const OverviewView: FC<OverviewViewProps> = ({
               <tbody>
                 {paginatedMotors.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
-                      No motor assets found matching the selected filters.
+                    <td colSpan={9} style={{ padding: '24px' }}>
+                      <EmptyState
+                        icon={<Search size={24} />}
+                        title="No Motors Found"
+                        description="No motor assets matched the selected filter criteria."
+                      />
                     </td>
                   </tr>
                 ) : (

@@ -164,12 +164,15 @@ async function run() {
   console.log('[8/8] Cleaning up test records from database...');
   import('node:child_process').then(({ execSync }) => {
     const pyCmd = `python -c "
-import pymongo
+import os, sys, pymongo
+target_db = os.getenv('MONGO_DB_NAME', 'motorguard_test')
+if target_db == 'motorguard_db':
+    sys.exit('SAFETY ERROR: Refusing to run test mutations on live database motorguard_db')
 client = pymongo.MongoClient('mongodb://127.0.0.1:27017')
-db = client['motorguard_db']
+db = client[target_db]
 wo_res = db['work_orders'].delete_many({'work_order_id': {'$in': ['WO-20261103-21B660', 'WO-20261103-60AB1E']}})
 alt_res = db['alerts'].delete_many({'alert_id': {'$in': ['ALT-20261103-268B06', 'ALT-20261103-1F933E', 'ALT-20261103-416997', 'ALT-20261103-A212E5']}})
-print(f'Cleaned up {wo_res.deletedCount} test work orders and {alt_res.deletedCount} test alerts.')
+print(f'[{target_db}] Cleaned up {wo_res.deleted_count} test work orders and {alt_res.deleted_count} test alerts.')
 "`;
     const out = execSync(pyCmd).toString();
     console.log(out.trim());
