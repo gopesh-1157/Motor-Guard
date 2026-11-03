@@ -1233,7 +1233,13 @@ export const TechnicianView: FC<TechnicianViewProps> = ({
                   display: 'flex',
                   justifyContent: 'flex-end',
                   gap: '0.75rem',
-                  marginTop: '1.5rem',
+                  marginTop: '1.25rem',
+                  position: 'sticky',
+                  bottom: 0,
+                  background: 'var(--bg-card)',
+                  paddingTop: '12px',
+                  borderTop: '1px solid var(--border-main)',
+                  zIndex: 2,
                 }}
               >
                 <button
