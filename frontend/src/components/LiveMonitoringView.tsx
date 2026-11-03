@@ -496,22 +496,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 </span>
                 <span className="metric-unit">°C</span>
               </div>
-              <div style={{ height: '4px', background: 'var(--bg-subtle)', borderRadius: '2px', overflow: 'hidden', margin: '8px 0 6px 0', border: '1px solid var(--border-subtle)' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.min(100, Math.max(0, ((sensors.temperature_c ?? 25) / effectiveCritTemp) * 100))}%`,
-                    background:
-                      sensors.temperature_c != null && sensors.temperature_c >= effectiveCritTemp
-                        ? 'var(--status-critical)'
-                        : sensors.temperature_c != null && sensors.temperature_c >= effectiveWarnTemp
-                        ? 'var(--status-warning)'
-                        : 'var(--sensor-temp)',
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 <span>Threshold: &le; {effectiveWarnTemp.toFixed(1)} °C</span>
                 <span className={`status-pill ${sensor_status.temperature.toLowerCase()}`}>
                   {sensor_status.temperature}
@@ -538,22 +523,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 </span>
                 <span className="metric-unit">A</span>
               </div>
-              <div style={{ height: '4px', background: 'var(--bg-subtle)', borderRadius: '2px', overflow: 'hidden', margin: '8px 0 6px 0', border: '1px solid var(--border-subtle)' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.min(100, Math.max(0, ((sensors.current_a ?? 0) / effectiveCritCurr) * 100))}%`,
-                    background:
-                      sensors.current_a != null && sensors.current_a >= effectiveCritCurr
-                        ? 'var(--status-critical)'
-                        : sensors.current_a != null && sensors.current_a >= effectiveWarnCurr
-                        ? 'var(--status-warning)'
-                        : 'var(--sensor-curr)',
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 <span>Threshold: &le; {effectiveWarnCurr.toFixed(2)} A</span>
                 <span className={`status-pill ${sensor_status.current.toLowerCase()}`}>
                   {sensor_status.current}
@@ -580,22 +550,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 </span>
                 <span className="metric-unit">g RMS</span>
               </div>
-              <div style={{ height: '4px', background: 'var(--bg-subtle)', borderRadius: '2px', overflow: 'hidden', margin: '8px 0 6px 0', border: '1px solid var(--border-subtle)' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.min(100, Math.max(0, ((sensors.vibration_g_rms ?? 0) / effectiveCritVib) * 100))}%`,
-                    background:
-                      sensors.vibration_g_rms != null && sensors.vibration_g_rms >= effectiveCritVib
-                        ? 'var(--status-critical)'
-                        : sensors.vibration_g_rms != null && sensors.vibration_g_rms >= effectiveWarnVib
-                        ? 'var(--status-warning)'
-                        : 'var(--sensor-vib)',
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 <span>ISO 10816: &le; {effectiveWarnVib.toFixed(3)} g RMS</span>
                 <span className={`status-pill ${sensor_status.vibration.toLowerCase()}`}>
                   {sensor_status.vibration}
@@ -615,17 +570,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 </span>
                 <span className="metric-unit">W</span>
               </div>
-              <div style={{ height: '4px', background: 'var(--bg-subtle)', borderRadius: '2px', overflow: 'hidden', margin: '8px 0 6px 0', border: '1px solid var(--border-subtle)' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.min(100, Math.max(0, ((Number(powerW) || 0) / 48) * 100))}%`,
-                    background: 'var(--sensor-power)',
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 <span>Rated Voltage: 12.0 VDC</span>
                 <span className="badge-status healthy" style={{ fontSize: '10px' }}>
                   MEASURED
