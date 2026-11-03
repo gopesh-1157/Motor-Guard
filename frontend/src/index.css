@@ -5147,6 +5147,23 @@ html, body {
   }
 }
 
+/* Live Telemetry Responsive Chart & 3D Twin Container */
+.live-monitor-chart-3d-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+}
+
+.live-monitor-chart-3d-layout.no-3d {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 992px) {
+  .live-monitor-chart-3d-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ==============================================================================
    SCADA / INDUSTRIAL GRADE DCS DESIGN EXTENSIONS
    DIN 43802 / IEC 60034 / ISO 10816-3 Industrial Control Standards

@@ -18,6 +18,9 @@ import {
 import type { MotorState, ChartMetric, AlertItem } from '../types'
 import { EChartPanel } from './EChartPanel'
 import { Motor3DViewer } from './Motor3DViewer'
+import { PageHeader } from './common/PageHeader'
+import { StatusBadge } from './common/StatusBadge'
+import { EmptyState } from './common/EmptyState'
 
 interface MotorAlertEvaluation {
   severity: 'critical' | 'warning' | 'healthy' | 'stale' | 'offline'
@@ -209,9 +212,11 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
 
   if (!currentMotor) {
     return (
-      <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
-        <p>No registered motors found in plant registry.</p>
-      </div>
+      <EmptyState
+        icon={<Activity size={32} />}
+        title="No Registered Motors Found"
+        description="No registered motor assets found in the plant registry. Verify gateway connectivity and device provisioning."
+      />
     )
   }
 
@@ -254,109 +259,100 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Page Header with Real-Time Stream Controls */}
-      <div className="page-header" style={{ alignItems: 'flex-start' }}>
-        <div className="page-title-group">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h2 className="page-title">Live Telemetry &amp; Stream Monitor</h2>
-            <span
-              className={`badge-status ${wsConnected ? 'healthy' : 'critical'}`}
-              style={{ fontSize: '11px' }}
-            >
-              {wsConnected ? 'LIVE WS' : 'WS RECONNECTING'}
-            </span>
+      <PageHeader
+        title="Live Telemetry & Stream Monitor"
+        subtitle="High-frequency deterministic telemetry pipeline: ESP32 → Mosquitto MQTT → FastAPI → WebSockets."
+        badge={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <StatusBadge
+              status={wsConnected ? 'healthy' : 'critical'}
+              label={wsConnected ? 'LIVE WS' : 'WS RECONNECTING'}
+            />
             {isPaused && (
-              <span
-                className="badge-status warning"
-                style={{ fontSize: '11px' }}
-              >
-                STREAM PAUSED
-              </span>
+              <StatusBadge status="warning" label="STREAM PAUSED" />
             )}
           </div>
-          <p className="page-description">
-            High-frequency deterministic telemetry pipeline: ESP32 &rarr; Mosquitto MQTT &rarr; FastAPI &rarr; WebSockets.
-          </p>
-        </div>
-
-        {/* Toolbar Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {/* View mode toggle */}
-          <div
-            style={{
-              display: 'flex',
-              background: 'var(--bg-subtle)',
-              border: '1px solid var(--border-main)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '2px',
-            }}
-          >
-            <button
-              onClick={() => setViewMode('single')}
+        }
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {/* View mode toggle */}
+            <div
               style={{
                 display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                border: 'none',
-                borderRadius: 'var(--radius-xs)',
-                cursor: 'pointer',
-                background: viewMode === 'single' ? '#FFFFFF' : 'transparent',
-                color: viewMode === 'single' ? 'var(--brand-primary)' : 'var(--text-secondary)',
-                boxShadow: viewMode === 'single' ? 'var(--shadow-xs)' : 'none',
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--border-main)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px',
               }}
             >
-              <Square size={14} />
-              <span>Single Asset</span>
+              <button
+                onClick={() => setViewMode('single')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderRadius: 'var(--radius-xs)',
+                  cursor: 'pointer',
+                  background: viewMode === 'single' ? 'var(--bg-card)' : 'transparent',
+                  color: viewMode === 'single' ? 'var(--brand-primary)' : 'var(--text-secondary)',
+                  boxShadow: viewMode === 'single' ? 'var(--shadow-xs)' : 'none',
+                }}
+              >
+                <Square size={14} />
+                <span>Single Asset</span>
+              </button>
+
+              <button
+                onClick={() => setViewMode('multi')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderRadius: 'var(--radius-xs)',
+                  cursor: 'pointer',
+                  background: viewMode === 'multi' ? 'var(--bg-card)' : 'transparent',
+                  color: viewMode === 'multi' ? 'var(--brand-primary)' : 'var(--text-secondary)',
+                  boxShadow: viewMode === 'multi' ? 'var(--shadow-xs)' : 'none',
+                }}
+              >
+                <LayoutGrid size={14} />
+                <span>Multi-Asset Grid</span>
+              </button>
+            </div>
+
+            {/* Pause / Resume button */}
+            <button
+              className={`btn-secondary ${isPaused ? 'active' : ''}`}
+              onClick={() => setIsPaused((prev) => !prev)}
+              style={{
+                borderColor: isPaused ? 'var(--status-warning)' : 'var(--border-main)',
+                color: isPaused ? 'var(--status-warning)' : 'var(--text-main)',
+              }}
+            >
+              {isPaused ? <Play size={14} /> : <Pause size={14} />}
+              <span>{isPaused ? 'Resume Stream' : 'Pause Live'}</span>
             </button>
 
+            {/* Clear Log Buffer */}
             <button
-              onClick={() => setViewMode('multi')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                border: 'none',
-                borderRadius: 'var(--radius-xs)',
-                cursor: 'pointer',
-                background: viewMode === 'multi' ? '#FFFFFF' : 'transparent',
-                color: viewMode === 'multi' ? 'var(--brand-primary)' : 'var(--text-secondary)',
-                boxShadow: viewMode === 'multi' ? 'var(--shadow-xs)' : 'none',
-              }}
+              className="btn-secondary"
+              onClick={() => setEventLog([])}
+              title="Clear event log history"
             >
-              <LayoutGrid size={14} />
-              <span>Multi-Asset Grid</span>
+              <RotateCcw size={14} />
+              <span>Reset Log</span>
             </button>
           </div>
-
-          {/* Pause / Resume button */}
-          <button
-            className={`btn-secondary ${isPaused ? 'active' : ''}`}
-            onClick={() => setIsPaused((prev) => !prev)}
-            style={{
-              borderColor: isPaused ? 'var(--status-warning)' : 'var(--border-main)',
-              color: isPaused ? 'var(--status-warning)' : 'var(--text-main)',
-            }}
-          >
-            {isPaused ? <Play size={14} /> : <Pause size={14} />}
-            <span>{isPaused ? 'Resume Stream' : 'Pause Live'}</span>
-          </button>
-
-          {/* Clear Log Buffer */}
-          <button
-            className="btn-secondary"
-            onClick={() => setEventLog([])}
-            title="Clear event log history"
-          >
-            <RotateCcw size={14} />
-            <span>Reset Log</span>
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* SINGLE MOTOR DEEP-DIVE VIEW */}
       {viewMode === 'single' && (
@@ -500,7 +496,22 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 </span>
                 <span className="metric-unit">°C</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              <div style={{ height: '4px', background: 'var(--bg-subtle)', borderRadius: '2px', overflow: 'hidden', margin: '8px 0 6px 0', border: '1px solid var(--border-subtle)' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, Math.max(0, ((sensors.temperature_c ?? 25) / effectiveCritTemp) * 100))}%`,
+                    background:
+                      sensors.temperature_c != null && sensors.temperature_c >= effectiveCritTemp
+                        ? 'var(--status-critical)'
+                        : sensors.temperature_c != null && sensors.temperature_c >= effectiveWarnTemp
+                        ? 'var(--status-warning)'
+                        : 'var(--sensor-temp)',
+                    transition: 'width 0.3s ease',
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
                 <span>Threshold: &le; {effectiveWarnTemp.toFixed(1)} °C</span>
                 <span className={`status-pill ${sensor_status.temperature.toLowerCase()}`}>
                   {sensor_status.temperature}
@@ -518,7 +529,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
               }}
             >
               <div className="metric-header">
-                <span className="metric-label">Armature Current</span>
+                <span className="metric-label">Armature Current (ACS712)</span>
                 <Zap size={16} color="var(--sensor-curr)" />
               </div>
               <div className="metric-value-row">
@@ -527,7 +538,22 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 </span>
                 <span className="metric-unit">A</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              <div style={{ height: '4px', background: 'var(--bg-subtle)', borderRadius: '2px', overflow: 'hidden', margin: '8px 0 6px 0', border: '1px solid var(--border-subtle)' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, Math.max(0, ((sensors.current_a ?? 0) / effectiveCritCurr) * 100))}%`,
+                    background:
+                      sensors.current_a != null && sensors.current_a >= effectiveCritCurr
+                        ? 'var(--status-critical)'
+                        : sensors.current_a != null && sensors.current_a >= effectiveWarnCurr
+                        ? 'var(--status-warning)'
+                        : 'var(--sensor-curr)',
+                    transition: 'width 0.3s ease',
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
                 <span>Threshold: &le; {effectiveWarnCurr.toFixed(2)} A</span>
                 <span className={`status-pill ${sensor_status.current.toLowerCase()}`}>
                   {sensor_status.current}
@@ -545,7 +571,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
               }}
             >
               <div className="metric-header">
-                <span className="metric-label">3-Axis Vibration RMS</span>
+                <span className="metric-label">3-Axis Vibration RMS (ADXL345)</span>
                 <Activity size={16} color="var(--sensor-vib)" />
               </div>
               <div className="metric-value-row">
@@ -554,7 +580,22 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 </span>
                 <span className="metric-unit">g RMS</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              <div style={{ height: '4px', background: 'var(--bg-subtle)', borderRadius: '2px', overflow: 'hidden', margin: '8px 0 6px 0', border: '1px solid var(--border-subtle)' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, Math.max(0, ((sensors.vibration_g_rms ?? 0) / effectiveCritVib) * 100))}%`,
+                    background:
+                      sensors.vibration_g_rms != null && sensors.vibration_g_rms >= effectiveCritVib
+                        ? 'var(--status-critical)'
+                        : sensors.vibration_g_rms != null && sensors.vibration_g_rms >= effectiveWarnVib
+                        ? 'var(--status-warning)'
+                        : 'var(--sensor-vib)',
+                    transition: 'width 0.3s ease',
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
                 <span>ISO 10816: &le; {effectiveWarnVib.toFixed(3)} g RMS</span>
                 <span className={`status-pill ${sensor_status.vibration.toLowerCase()}`}>
                   {sensor_status.vibration}
@@ -574,7 +615,17 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
                 </span>
                 <span className="metric-unit">W</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              <div style={{ height: '4px', background: 'var(--bg-subtle)', borderRadius: '2px', overflow: 'hidden', margin: '8px 0 6px 0', border: '1px solid var(--border-subtle)' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, Math.max(0, ((Number(powerW) || 0) / 48) * 100))}%`,
+                    background: 'var(--sensor-power)',
+                    transition: 'width 0.3s ease',
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
                 <span>Rated Voltage: 12.0 VDC</span>
                 <span className="badge-status healthy" style={{ fontSize: '10px' }}>
                   MEASURED
@@ -584,7 +635,7 @@ export const LiveMonitoringView: FC<LiveMonitoringViewProps> = ({
           </div>
 
           {/* Real-time High-Resolution Telemetry Chart & 3D Spatial Twin */}
-          <div style={{ display: 'grid', gridTemplateColumns: show3D ? '1fr 340px' : '1fr', gap: '16px' }}>
+          <div className={`live-monitor-chart-3d-layout ${!show3D ? 'no-3d' : ''}`}>
             <div className="card" style={{ padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <div>
