@@ -5441,4 +5441,31 @@ html, body {
   100% { background-position: -200% 0; }
 }
 
+/* Work Orders Design System Enhancements */
+.work-orders-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4, 16px);
+  margin-bottom: var(--space-6, 24px);
+}
+
+@media (max-width: 1024px) {
+  .work-orders-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .work-orders-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .incidents-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
 
