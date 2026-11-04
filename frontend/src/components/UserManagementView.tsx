@@ -13,16 +13,18 @@ import {
   Eye,
   EyeOff,
   Shield,
+  ShieldAlert,
   KeyRound,
 } from 'lucide-react'
-import type { UserProfile, ManagedUser, WorkOrderItem } from '../types'
+import type { UserProfile, ManagedUser, WorkOrderItem, NavigationTab } from '../types'
 
 interface UserManagementViewProps {
   currentUser?: UserProfile | null
   onOpenLogin?: () => void
+  onNavigate?: (tab: NavigationTab) => void
 }
 
-export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, onOpenLogin }) => {
+export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, onOpenLogin, onNavigate }) => {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -371,6 +373,43 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
           {onOpenLogin && (
             <button onClick={onOpenLogin} className="btn-primary" style={{ padding: '8px 18px', fontSize: '13px' }}>
               Sign In to MotorGuard
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Access Denied guard for Technician
+  if (isTechnician) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-main)' }}>
+        <div
+          style={{
+            maxWidth: '480px',
+            margin: '0 auto',
+            background: 'var(--bg-card)',
+            padding: '32px',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--border-main)',
+            boxShadow: 'var(--shadow-md)',
+          }}
+        >
+          <ShieldAlert size={44} color="var(--status-critical)" style={{ margin: '0 auto 16px' }} />
+          <h2 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 8px' }}>Access Denied</h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 8px' }}>
+            User Management is restricted to Administrators and Plant Managers.
+          </p>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 20px', fontFamily: 'var(--font-mono)' }}>
+            Error 403: Role 'Technician' lacks authorization.
+          </p>
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('overview')}
+              className="btn-primary"
+              style={{ padding: '8px 18px', fontSize: '13px' }}
+            >
+              Return to Overview
             </button>
           )}
         </div>

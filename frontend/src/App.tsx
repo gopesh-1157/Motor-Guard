@@ -10,8 +10,9 @@ import type { MotorState, AlertItem, NavigationTab, UserProfile } from './types'
 
 // Dynamic lazy-loaded view chunks to cut initial bundle size from 2.2 MB
 const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })))
-const MotorDigitalTwin3D = lazy(() => import('./components/MotorDigitalTwin3D').then((m) => ({ default: m.MotorDigitalTwin3D })))
+const SplineMotorTwin = lazy(() => import('./components/SplineMotorTwin').then((m) => ({ default: m.SplineMotorTwin })))
 const MotorManagementView = lazy(() => import('./components/MotorManagementView').then((m) => ({ default: m.MotorManagementView })))
+
 const LiveMonitoringView = lazy(() => import('./components/LiveMonitoringView').then((m) => ({ default: m.LiveMonitoringView })))
 const AlertsView = lazy(() => import('./components/AlertsView').then((m) => ({ default: m.AlertsView })))
 const ManagerView = lazy(() => import('./components/ManagerView').then((m) => ({ default: m.ManagerView })))
@@ -50,8 +51,26 @@ export default function App() {
     clearTelemetry,
   } = useTelemetry(currentUser)
 
-  // Navigation tab state (defaulting to overview)
-  const [currentTab, setCurrentTab] = useState<NavigationTab>('overview')
+  // Navigation tab state (supports direct URL hash or query param)
+  const [currentTab, setCurrentTab] = useState<NavigationTab>(() => {
+    try {
+      const hash = window.location.hash.replace('#', '')
+      if (hash) return hash as NavigationTab
+      const params = new URLSearchParams(window.location.search)
+      const tabParam = params.get('tab')
+      if (tabParam) return tabParam as NavigationTab
+    } catch {}
+    return 'overview'
+  })
+
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.replace('#', '')
+      if (hash) setCurrentTab(hash as NavigationTab)
+    }
+    window.addEventListener('hashchange', handleHash)
+    return () => window.removeEventListener('hashchange', handleHash)
+  }, [])
 
   // Selected motor ID for analytics & 3D inspection
   const [selectedMotorId, setSelectedMotorId] = useState<string>('MTR-775-001')
@@ -130,6 +149,9 @@ export default function App() {
         } else {
           setAlertFetchError('Malformed alert response from gateway API')
         }
+      } else if (res.status === 401) {
+        setAlertFetchError('Session expired. Please log in again.')
+        window.dispatchEvent(new CustomEvent('motorguard:unauthorized'))
       } else {
         setAlertFetchError(`Alerts service unavailable (HTTP ${res.status})`)
       }
@@ -139,6 +161,18 @@ export default function App() {
       setLoadingAlerts(false)
     }
   }, [currentUser])
+
+  // Automatically reset stale auth session on 401
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      localStorage.removeItem('motorguard_auth_user')
+      localStorage.removeItem('motorguard_auth_token')
+      setCurrentUser(null)
+      setIsLoginModalOpen(true)
+    }
+    window.addEventListener('motorguard:unauthorized', handleUnauthorized)
+    return () => window.removeEventListener('motorguard:unauthorized', handleUnauthorized)
+  }, [])
 
   useEffect(() => {
     fetchAlerts()
@@ -150,9 +184,45 @@ export default function App() {
     return alerts.filter((a) => a.severity === 'CRITICAL' && a.state !== 'RESOLVED').length
   }, [alerts])
 
-  const assignedCount = useMemo(() => {
-    return alerts.filter((a) => !!a.assigned_to && a.state !== 'RESOLVED').length
-  }, [alerts])
+  const [workOrderBadgeCount, setWorkOrderBadgeCount] = useState<number>(0)
+
+  const refreshWorkOrderBadge = useCallback(async () => {
+    if (!currentUser) {
+      setWorkOrderBadgeCount(0)
+      return
+    }
+    try {
+      const token = localStorage.getItem('motorguard_auth_token')
+      const headers: Record<string, string> = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const res = await fetch('/api/v1/work-orders', { headers })
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) {
+          const active = data.filter((w) => w.status !== 'Resolved' && w.status !== 'Rejected')
+          setWorkOrderBadgeCount(active.length)
+          return
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    if (currentUser.role === 'Technician') {
+      const c = alerts.filter(
+        (a) =>
+          (a.assigned_to === currentUser.username || (currentUser.id && a.assigned_to === currentUser.id)) &&
+          a.state !== 'RESOLVED'
+      ).length
+      setWorkOrderBadgeCount(c)
+    } else {
+      setWorkOrderBadgeCount(alerts.filter((a) => !!a.assigned_to && a.state !== 'RESOLVED').length)
+    }
+  }, [currentUser, alerts])
+
+  useEffect(() => {
+    refreshWorkOrderBadge()
+  }, [refreshWorkOrderBadge])
 
   // Last telemetry timestamp across fleet
   const latestTelemetryIso = useMemo(() => {
@@ -224,7 +294,9 @@ export default function App() {
         title: `Maintenance on ${motorId}: ${targetAlert?.message || 'High Severity Fault'}`,
         description: instructions || 'Inspect motor bearing, measure dynamic vibration RMS and verify thermals.',
       }),
-    }).catch(() => {})
+    })
+      .then(() => refreshWorkOrderBadge())
+      .catch(() => {})
   }
 
   // Technician action: Resolve alert
@@ -295,7 +367,7 @@ export default function App() {
       selectedMotorId={selectedMotorId}
       onSelectMotor={setSelectedMotorId}
       criticalAlertCount={criticalAlertsCount}
-      activeWorkOrderCount={assignedCount}
+      activeWorkOrderCount={workOrderBadgeCount}
     >
       {/* 1. PUBLIC MARKETING LANDING PAGE OR AUTHENTICATED OVERVIEW DASHBOARD */}
       {(currentTab === 'overview' || currentTab === 'landing') && (
@@ -381,7 +453,7 @@ export default function App() {
       {currentTab === 'twin' && (
         <ErrorBoundary fallbackTitle="3D Digital Twin Unavailable" fallbackMessage="WebGL 3D Context could not be rendered or was lost.">
           <Suspense fallback={<ViewLoadingFallback />}>
-            <MotorDigitalTwin3D
+            <SplineMotorTwin
               motors={motorList}
               selectedMotorId={selectedMotorId}
               onSelectMotor={setSelectedMotorId}
@@ -389,6 +461,7 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       )}
+
 
       {/* 5. ALERTS & EVENTS MANAGEMENT */}
       {currentTab === 'alerts' && (
@@ -436,6 +509,7 @@ export default function App() {
               onResolveAlert={handleResolveAlert}
               currentUser={currentUser}
               onOpenLogin={() => setIsLoginModalOpen(true)}
+              onRefreshData={refreshWorkOrderBadge}
             />
           </Suspense>
         </ErrorBoundary>
@@ -486,6 +560,7 @@ export default function App() {
             <UserManagementView
               currentUser={currentUser}
               onOpenLogin={() => setIsLoginModalOpen(true)}
+              onNavigate={setCurrentTab}
             />
           </Suspense>
         </ErrorBoundary>
