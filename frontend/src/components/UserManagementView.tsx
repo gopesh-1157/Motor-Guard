@@ -63,6 +63,14 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
+  // Reset Password Modal state
+  const [resettingUser, setResettingUser] = useState<ManagedUser | null>(null)
+  const [resetPasswordValue, setResetPasswordValue] = useState('')
+  const [resetShowPassword, setResetShowPassword] = useState(false)
+  const [resetPasswordError, setResetPasswordError] = useState<string | null>(null)
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState<string | null>(null)
+  const [resettingPassword, setResettingPassword] = useState(false)
+
   // Self-Profile Editing state (available to all roles)
   const [selfEmail, setSelfEmail] = useState(currentUser?.email || '')
   const [selfCurrentPassword, setSelfCurrentPassword] = useState('')
@@ -144,12 +152,12 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
     }
   }, [inspectingUser, getAuthHeaders])
 
-  // Toggle user activation status (Admin only)
+  // Toggle user activation status (Admin or Manager over Technician)
   const handleToggleStatus = async (user: ManagedUser) => {
-    if (!isAdmin) return
+    if (!isAdmin && (!isManager || user.role !== 'Technician')) return
     try {
       const newStatus = !user.is_active
-      const res = await fetch(`/api/v1/auth/users/${user.id}/status`, {
+      const res = await fetch(`/api/v1/auth/users/${user.id}/status?is_active=${newStatus}`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ is_active: newStatus }),
@@ -168,14 +176,15 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
     }
   }
 
-  // Create user submit (Admin only)
+  // Create user submit (Admin or Manager)
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!isAdmin) return
+    if (!isAdmin && !isManager) return
     setCreatingUser(true)
     setCreateError(null)
     setCreateSuccess(null)
 
+    const effectiveRole = isManager ? 'Technician' : createRole
     const sites = createSites
       .split(',')
       .map((s) => s.trim())
@@ -193,14 +202,14 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
           username: createUsername.trim(),
           email: createEmail.trim(),
           password: createPassword,
-          role: createRole,
+          role: effectiveRole,
           assigned_sites: sites,
           assigned_motors: motors,
         }),
       })
 
       if (res.ok) {
-        setCreateSuccess(`Account '${createUsername.trim()}' successfully registered as ${createRole}!`)
+        setCreateSuccess(`Account '${createUsername.trim()}' successfully registered as ${effectiveRole}!`)
         setCreateUsername('')
         setCreateEmail('')
         setCreatePassword('')
@@ -229,10 +238,10 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
     setEditError(null)
   }
 
-  // Save edit user (Admin only)
+  // Save edit user (Admin or Manager over Technician)
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!editingUser || !isAdmin) return
+    if (!editingUser || (!isAdmin && (!isManager || editingUser.role !== 'Technician'))) return
     setSavingEdit(true)
     setEditError(null)
 
@@ -246,16 +255,22 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
       .filter(Boolean)
 
     try {
+      const payload: Record<string, any> = {
+        email: editEmail.trim(),
+        is_active: editActive,
+        assigned_sites: sites,
+        assigned_motors: motors,
+      }
+      if (isAdmin) {
+        payload.role = editRole
+      } else {
+        payload.role = 'Technician'
+      }
+
       const res = await fetch(`/api/v1/auth/users/${editingUser.id}`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
-        body: JSON.stringify({
-          email: editEmail.trim(),
-          role: editRole,
-          is_active: editActive,
-          assigned_sites: sites,
-          assigned_motors: motors,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (res.ok) {
@@ -273,6 +288,44 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
       setEditError('Network error while saving user profile')
     } finally {
       setSavingEdit(false)
+    }
+  }
+
+  // Reset password modal handlers
+  const handleStartResetPassword = (user: ManagedUser) => {
+    setResettingUser(user)
+    setResetPasswordValue('')
+    setResetShowPassword(false)
+    setResetPasswordError(null)
+    setResetPasswordSuccess(null)
+  }
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!resettingUser) return
+    setResettingPassword(true)
+    setResetPasswordError(null)
+    setResetPasswordSuccess(null)
+
+    try {
+      const res = await fetch(`/api/v1/auth/users/${resettingUser.id}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ password: resetPasswordValue }),
+      })
+
+      if (res.ok) {
+        setResetPasswordSuccess(`Password successfully updated for ${resettingUser.username}. Active sessions revoked.`)
+        setResetPasswordValue('')
+        setTimeout(() => setResettingUser(null), 1200)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setResetPasswordError(err.detail || 'Failed to reset password')
+      }
+    } catch {
+      setResetPasswordError('Network error while resetting password')
+    } finally {
+      setResettingPassword(false)
     }
   }
 
@@ -510,9 +563,15 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
             </button>
           )}
 
-          {isAdmin && (
+          {(isAdmin || isManager) && (
             <button
-              onClick={() => setIsCreateOpen(true)}
+              onClick={() => {
+                if (isManager) {
+                  setCreateRole('Technician')
+                  setCreateSites((currentUser?.assigned_sites || []).join(', '))
+                }
+                setIsCreateOpen(true)
+              }}
               className="btn-primary"
               style={{ padding: '6px 14px', fontSize: '11.5px' }}
             >
@@ -997,7 +1056,7 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
                             Details
                           </button>
 
-                          {isAdmin && (
+                          {(isAdmin || (isManager && u.role === 'Technician')) && (
                             <>
                               <button
                                 onClick={() => handleStartEdit(u)}
@@ -1019,6 +1078,15 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
                                 title={u.is_active ? 'Suspend Account' : 'Activate Account'}
                               >
                                 <Power size={12} />
+                              </button>
+
+                              <button
+                                onClick={() => handleStartResetPassword(u)}
+                                className="btn-action-ghost"
+                                style={{ padding: '4px 8px', fontSize: '11px' }}
+                                title="Reset Password"
+                              >
+                                <KeyRound size={12} />
                               </button>
                             </>
                           )}
@@ -1298,10 +1366,11 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
                   <select
                     value={createRole}
                     onChange={(e) => setCreateRole(e.target.value as 'Manager' | 'Technician')}
+                    disabled={isManager}
                     style={{ width: '100%', padding: '7px 10px', borderRadius: '4px', border: '1px solid var(--border-main)', background: 'var(--bg-app)', fontSize: '12px' }}
                   >
                     <option value="Technician">Technician</option>
-                    <option value="Manager">Manager</option>
+                    {!isManager && <option value="Manager">Manager</option>}
                   </select>
                 </div>
 
@@ -1366,12 +1435,14 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Role</label>
                   <select
-                    value={editRole}
+                    value={isManager ? 'Technician' : editRole}
                     onChange={(e) => setEditRole(e.target.value as 'Admin' | 'Manager' | 'Technician')}
-                    disabled={editingUser.role === 'Admin'}
+                    disabled={editingUser.role === 'Admin' || isManager}
                     style={{ width: '100%', padding: '7px 10px', borderRadius: '4px', border: '1px solid var(--border-main)', background: 'var(--bg-app)', fontSize: '12px' }}
                   >
-                    {editingUser.role === 'Admin' ? (
+                    {isManager ? (
+                      <option value="Technician">Technician</option>
+                    ) : editingUser.role === 'Admin' ? (
                       <option value="Admin">Admin</option>
                     ) : (
                       <>
@@ -1411,6 +1482,84 @@ export const UserManagementView: FC<UserManagementViewProps> = ({ currentUser, o
                 </button>
                 <button type="submit" disabled={savingEdit} className="btn-primary" style={{ fontSize: '12px' }}>
                   {savingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* RESET PASSWORD MODAL */}
+      {resettingUser && (
+        <div className="modal-backdrop">
+          <div className="modal-dialog" style={{ maxWidth: '420px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <KeyRound size={16} color="var(--brand-primary)" />
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>Reset Password: {resettingUser.username}</h3>
+              </div>
+              <button
+                onClick={() => setResettingUser(null)}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleResetPasswordSubmit}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Assigning a new password will immediately revoke all active sessions for this account.
+                </p>
+
+                {resetPasswordSuccess && (
+                  <div style={{ padding: '8px 12px', background: 'var(--status-healthy-bg)', color: 'var(--status-healthy)', borderRadius: '4px', fontSize: '12px' }}>
+                    {resetPasswordSuccess}
+                  </div>
+                )}
+                {resetPasswordError && (
+                  <div style={{ padding: '8px 12px', background: 'var(--status-critical-bg)', color: 'var(--status-critical)', borderRadius: '4px', fontSize: '12px' }}>
+                    {resetPasswordError}
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>New Password</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={resetShowPassword ? 'text' : 'password'}
+                      required
+                      value={resetPasswordValue}
+                      onChange={(e) => setResetPasswordValue(e.target.value)}
+                      placeholder="Min 8 chars, 1 digit, 1 special"
+                      style={{ width: '100%', padding: '7px 32px 7px 10px', borderRadius: '4px', border: '1px solid var(--border-main)', background: 'var(--bg-app)', fontSize: '12px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setResetShowPassword(!resetShowPassword)}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      {resetShowPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button type="button" onClick={() => setResettingUser(null)} className="btn-action-ghost" style={{ fontSize: '12px' }}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={resettingPassword} className="btn-primary" style={{ fontSize: '12px' }}>
+                  {resettingPassword ? 'Updating...' : 'Set New Password'}
                 </button>
               </div>
             </form>

@@ -85,9 +85,48 @@ class UserService:
         doc["id"] = str(doc.pop("_id", ""))
         return UserOut(**doc)
 
-    async def create_user(self, user_in: UserCreate, actor: Optional[str] = None) -> UserOut:
+    async def create_user(
+        self,
+        user_in: UserCreate,
+        actor: Optional[str] = None,
+        actor_user: Optional[UserOut] = None,
+    ) -> UserOut:
         """Hash password and insert a new user document."""
         from fastapi import HTTPException, status
+
+        # Resolve actor_user if not passed explicitly
+        if actor_user is None and actor and actor != "system_bootstrap" and not actor.startswith("admin"):
+            actor_doc = await self.collection.find_one({"username": actor})
+            if actor_doc:
+                actor_user = UserOut(
+                    id=str(actor_doc.get("_id", "")),
+                    username=actor_doc.get("username", actor),
+                    email=actor_doc.get("email", ""),
+                    role=actor_doc.get("role", "Technician"),
+                    assigned_sites=actor_doc.get("assigned_sites", []),
+                    assigned_motors=actor_doc.get("assigned_motors", []),
+                    is_active=actor_doc.get("is_active", True),
+                )
+
+        # Manager role constraints: can ONLY create Technicians, scoped to Manager's sites
+        if actor_user and actor_user.role == "Manager":
+            if user_in.role != "Technician":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Managers cannot provision accounts with role '{user_in.role}'. Only 'Technician' is permitted.",
+                )
+            if actor_user.assigned_sites:
+                mgr_sites = set(actor_user.assigned_sites)
+                if not user_in.assigned_sites:
+                    user_in.assigned_sites = list(actor_user.assigned_sites)
+                else:
+                    tech_sites = set(user_in.assigned_sites)
+                    if not tech_sites.issubset(mgr_sites):
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Assigned sites {user_in.assigned_sites} exceed Manager's authorized scope {actor_user.assigned_sites}.",
+                        )
+
         # Check email uniqueness before insertion
         existing_email = await self.collection.find_one({"email": user_in.email})
         if existing_email:
@@ -175,7 +214,7 @@ class UserService:
     async def list_users(self, skip: int = 0, limit: int = 50, site_filter: Optional[List[str]] = None) -> List[UserOut]:
         """List active/registered users, optionally filtered by assigned site scopes."""
         query = {}
-        if site_filter is not None:
+        if site_filter is not None and len(site_filter) > 0:
             query["assigned_sites"] = {"$in": site_filter}
         cursor = self.collection.find(query).skip(skip).limit(limit)
         users = []
@@ -259,7 +298,13 @@ class UserService:
             technicians.append(UserOut(**doc))
         return technicians
 
-    async def update_user(self, user_id: str, data: "UserUpdate", actor: str) -> UserOut:
+    async def update_user(
+        self,
+        user_id: str,
+        data: "UserUpdate",
+        actor: str,
+        actor_user: Optional[UserOut] = None,
+    ) -> UserOut:
         """Update user profile fields, role, site/motor scopes, or activation status atomically."""
         from bson import ObjectId
         from fastapi import HTTPException, status
@@ -268,10 +313,65 @@ class UserService:
         except Exception:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{user_id}' not found")
 
+        # Resolve actor_user if not passed explicitly
+        if actor_user is None and actor and actor != "system_bootstrap" and not actor.startswith("admin"):
+            actor_doc = await self.collection.find_one({"username": actor})
+            if actor_doc:
+                actor_user = UserOut(
+                    id=str(actor_doc.get("_id", "")),
+                    username=actor_doc.get("username", actor),
+                    email=actor_doc.get("email", ""),
+                    role=actor_doc.get("role", "Technician"),
+                    assigned_sites=actor_doc.get("assigned_sites", []),
+                    assigned_motors=actor_doc.get("assigned_motors", []),
+                    is_active=actor_doc.get("is_active", True),
+                )
+
         async with self._admin_lock:
             existing = await self.collection.find_one({"_id": oid})
             if not existing:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{user_id}' not found")
+
+            # Check if actor is a Manager
+            if actor_user and actor_user.role == "Manager":
+                # 1. Manager cannot edit themselves through /users/{user_id} (must use /me)
+                if str(existing.get("_id")) == str(actor_user.id) or existing.get("username") == actor_user.username:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Managers cannot edit their own account through this endpoint. Use /api/v1/auth/me.",
+                    )
+
+                # 2. Check TARGET user role in service layer: MUST be Technician
+                target_current_role = existing.get("role")
+                if target_current_role != "Technician":
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Managers are only permitted to manage Technicians (target user has role '{target_current_role}').",
+                    )
+
+                # 3. Manager cannot change target's role to anything other than 'Technician'
+                if data.role is not None and data.role != "Technician":
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Managers cannot set role '{data.role}'. Only 'Technician' is permitted.",
+                    )
+
+                # 4. Site scoping for Manager:
+                if actor_user.assigned_sites:
+                    mgr_sites = set(actor_user.assigned_sites)
+                    tgt_sites = set(existing.get("assigned_sites") or [])
+                    if tgt_sites and not mgr_sites.intersection(tgt_sites):
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Access denied: Target Technician is outside your assigned site scope.",
+                        )
+                    if data.assigned_sites is not None:
+                        new_sites = set(data.assigned_sites)
+                        if not new_sites.issubset(mgr_sites):
+                            raise HTTPException(
+                                status_code=status.HTTP_403_FORBIDDEN,
+                                detail=f"Cannot assign sites outside Manager's authorized scope {actor_user.assigned_sites}.",
+                            )
 
             # 1. Prevent elevating role to Admin via standard user management
             if data.role == "Admin" and existing.get("role") != "Admin":
@@ -350,7 +450,7 @@ class UserService:
             )
             return UserOut(**updated_doc)
 
-    async def delete_user(self, user_id: str, actor: str) -> bool:
+    async def delete_user(self, user_id: str, actor: str, actor_user: Optional[UserOut] = None) -> bool:
         """Safely delete a user account, preserving final active Admin atomically."""
         from bson import ObjectId
         from fastapi import HTTPException, status
@@ -358,6 +458,26 @@ class UserService:
             oid = ObjectId(user_id)
         except Exception:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{user_id}' not found")
+
+        # Resolve actor_user if not passed explicitly
+        if actor_user is None and actor and actor != "system_bootstrap" and not actor.startswith("admin"):
+            actor_doc = await self.collection.find_one({"username": actor})
+            if actor_doc:
+                actor_user = UserOut(
+                    id=str(actor_doc.get("_id", "")),
+                    username=actor_doc.get("username", actor),
+                    email=actor_doc.get("email", ""),
+                    role=actor_doc.get("role", "Technician"),
+                    assigned_sites=actor_doc.get("assigned_sites", []),
+                    assigned_motors=actor_doc.get("assigned_motors", []),
+                    is_active=actor_doc.get("is_active", True),
+                )
+
+        if actor_user and actor_user.role == "Manager":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Managers are not permitted to delete user accounts.",
+            )
 
         async with self._admin_lock:
             existing = await self.collection.find_one({"_id": oid})

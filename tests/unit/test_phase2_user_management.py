@@ -138,38 +138,66 @@ def test_cannot_create_admin_through_api():
 
 
 def test_manager_and_technician_cannot_create_users():
-    """Managers and Technicians must receive HTTP 403 when trying to register accounts."""
-    roles = ["Manager", "Technician"]
-    for role in roles:
-        user = UserInDB(
-            id="65f123456789abcdef012345",
-            username=f"test_{role.lower()}",
-            email=f"{role.lower()}@factory.local",
-            role=role,
-            password_hash="hash",
-            created_at=datetime.now(timezone.utc),
-            is_active=True,
+    """Technicians cannot register users; Managers cannot register Admins or Managers."""
+    # 1. Technician cannot create any user
+    tech_user = UserInDB(
+        id="65f123456789abcdef012345",
+        username="test_technician",
+        email="tech@factory.local",
+        role="Technician",
+        password_hash="hash",
+        created_at=datetime.now(timezone.utc),
+        is_active=True,
+    )
+    mock_svc = MagicMock(spec=UserService)
+    mock_svc.get_by_username = AsyncMock(return_value=tech_user)
+    app.dependency_overrides[get_user_service] = lambda: mock_svc
+
+    try:
+        res = client.post(
+            "/api/v1/auth/register",
+            json={
+                "username": "sub_user",
+                "email": "sub@factory.local",
+                "password": "Password123!",
+                "role": "Technician",
+            },
+            headers=auth_header(tech_user.username, "Technician"),
         )
+        assert res.status_code == 403
+        assert "Operation requires role in ('Admin', 'Manager')" in res.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
 
-        mock_svc = MagicMock(spec=UserService)
-        mock_svc.get_by_username = AsyncMock(return_value=user)
-        app.dependency_overrides[get_user_service] = lambda: mock_svc
+    # 2. Manager cannot create Manager or Admin
+    mgr_user = UserInDB(
+        id="65f123456789abcdef012346",
+        username="test_manager",
+        email="mgr@factory.local",
+        role="Manager",
+        password_hash="hash",
+        created_at=datetime.now(timezone.utc),
+        is_active=True,
+    )
+    mock_svc = MagicMock(spec=UserService)
+    mock_svc.get_by_username = AsyncMock(return_value=mgr_user)
+    app.dependency_overrides[get_user_service] = lambda: mock_svc
 
-        try:
-            res = client.post(
-                "/api/v1/auth/register",
-                json={
-                    "username": "sub_user",
-                    "email": "sub@factory.local",
-                    "password": "Password123!",
-                    "role": "Technician",
-                },
-                headers=auth_header(user.username, role),
-            )
-            assert res.status_code == 403
-            assert "Operation requires role in ('Admin',)" in res.json()["detail"]
-        finally:
-            app.dependency_overrides.clear()
+    try:
+        res = client.post(
+            "/api/v1/auth/register",
+            json={
+                "username": "sub_admin",
+                "email": "sub_admin@factory.local",
+                "password": "Password123!",
+                "role": "Admin",
+            },
+            headers=auth_header(mgr_user.username, "Manager"),
+        )
+        assert res.status_code == 403
+        assert "Only 'Technician' is permitted" in res.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_duplicate_username_and_email_rejected():

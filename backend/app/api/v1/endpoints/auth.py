@@ -2,7 +2,8 @@
 MotorGuard — Auth & User Management Endpoints
 """
 
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
 from backend.app.schemas.user import LoginRequest, Token, UserCreate, UserUpdate, UserOut, UserProfileUpdate
 from backend.app.services.user_service import UserService
@@ -77,21 +78,29 @@ async def update_current_user_profile(
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_in: UserCreate,
-    current_user: UserOut = Depends(require_roles("Admin")),
+    current_user: UserOut = Depends(require_roles("Admin", "Manager")),
     user_service: UserService = Depends(get_user_service),
 ):
-    """Register a new user account (Requires 'Admin' role; role must be Manager or Technician)."""
-    # Security Constraint: Admin cannot create another Admin through ordinary APIs
-    if user_in.role == "Admin":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Creating Admin accounts through standard user management is prohibited. Admin accounts require system bootstrap.",
-        )
-    if user_in.role not in ("Manager", "Technician"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Role '{user_in.role}' is invalid. Standard user creation permits only 'Manager' or 'Technician'.",
-        )
+    """Register a new user account (Requires 'Admin' or 'Manager' role)."""
+    # Manager can only provision Technicians
+    if current_user.role == "Manager":
+        if user_in.role != "Technician":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Managers cannot provision accounts with role '{user_in.role}'. Only 'Technician' is permitted.",
+            )
+    else:
+        # Security Constraint: Admin cannot create another Admin through ordinary APIs
+        if user_in.role == "Admin":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Creating Admin accounts through standard user management is prohibited. Admin accounts require system bootstrap.",
+            )
+        if user_in.role not in ("Manager", "Technician"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Role '{user_in.role}' is invalid. Standard user creation permits only 'Manager' or 'Technician'.",
+            )
 
     existing_username = await user_service.get_by_username(user_in.username)
     if existing_username:
@@ -120,7 +129,7 @@ async def list_users(
     """List system users (Admin views all, Manager views users in their assigned sites)."""
     site_filter = None
     if current_user.role == "Manager":
-        site_filter = current_user.assigned_sites or []
+        site_filter = current_user.assigned_sites if (current_user.assigned_sites and len(current_user.assigned_sites) > 0) else None
     return await user_service.list_users(skip=skip, limit=limit, site_filter=site_filter)
 
 
@@ -168,22 +177,30 @@ async def get_user_by_id(
 async def update_user(
     user_id: str,
     user_update: UserUpdate,
-    current_user: UserOut = Depends(require_roles("Admin")),
+    current_user: UserOut = Depends(require_roles("Admin", "Manager")),
     user_service: UserService = Depends(get_user_service),
 ):
-    """Update user profile, permissions, or activation status (Requires 'Admin' role)."""
-    return await user_service.update_user(user_id, user_update, actor=current_user.username)
+    """Update user profile, permissions, or activation status (Requires 'Admin' or 'Manager' role)."""
+    return await user_service.update_user(user_id, user_update, actor=current_user.username, actor_user=current_user)
+
+
+class UserStatusUpdate(BaseModel):
+    is_active: bool
 
 
 @router.post("/users/{user_id}/status", response_model=UserOut)
 async def toggle_user_status(
     user_id: str,
-    is_active: bool,
-    current_user: UserOut = Depends(require_roles("Admin")),
+    is_active: Optional[bool] = None,
+    status_body: Optional[UserStatusUpdate] = None,
+    current_user: UserOut = Depends(require_roles("Admin", "Manager")),
     user_service: UserService = Depends(get_user_service),
 ):
-    """Activate or deactivate user account with final Admin protection (Requires 'Admin' role)."""
-    return await user_service.update_user(user_id, UserUpdate(is_active=is_active), actor=current_user.username)
+    """Activate or deactivate user account with final Admin protection (Requires 'Admin' or 'Manager' role)."""
+    target_active = is_active if is_active is not None else (status_body.is_active if status_body else None)
+    if target_active is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing required 'is_active' status parameter")
+    return await user_service.update_user(user_id, UserUpdate(is_active=target_active), actor=current_user.username, actor_user=current_user)
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -193,7 +210,7 @@ async def delete_user(
     user_service: UserService = Depends(get_user_service),
 ):
     """Delete a user account with final Admin protection (Requires 'Admin' role)."""
-    await user_service.delete_user(user_id, actor=current_user.username)
+    await user_service.delete_user(user_id, actor=current_user.username, actor_user=current_user)
     return None
 
 
