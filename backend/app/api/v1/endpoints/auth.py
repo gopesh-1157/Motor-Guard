@@ -4,7 +4,7 @@ MotorGuard — Auth & User Management Endpoints
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from backend.app.schemas.user import LoginRequest, Token, UserCreate, UserUpdate, UserOut
+from backend.app.schemas.user import LoginRequest, Token, UserCreate, UserUpdate, UserOut, UserProfileUpdate
 from backend.app.services.user_service import UserService
 from backend.app.core.auth import get_user_service, get_current_active_user, require_roles
 from backend.app.core.security import create_access_token
@@ -59,6 +59,21 @@ async def get_current_user_profile(
     return current_user
 
 
+@router.patch("/me", response_model=UserOut)
+async def update_current_user_profile(
+    profile_in: UserProfileUpdate,
+    current_user: UserOut = Depends(get_current_active_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Update profile of currently authenticated user (email, password)."""
+    return await user_service.update_profile(
+        user_id=current_user.id,
+        email=profile_in.email,
+        password=profile_in.password,
+        current_password=profile_in.current_password,
+    )
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_in: UserCreate,
@@ -99,11 +114,54 @@ async def register_user(
 async def list_users(
     skip: int = 0,
     limit: int = 50,
-    current_user: UserOut = Depends(require_roles("Admin")),
+    current_user: UserOut = Depends(require_roles("Admin", "Manager")),
     user_service: UserService = Depends(get_user_service),
 ):
-    """List system users (Requires 'Admin' role)."""
-    return await user_service.list_users(skip=skip, limit=limit)
+    """List system users (Admin views all, Manager views users in their assigned sites)."""
+    site_filter = None
+    if current_user.role == "Manager":
+        site_filter = current_user.assigned_sites or []
+    return await user_service.list_users(skip=skip, limit=limit, site_filter=site_filter)
+
+
+@router.get("/users/{user_id}", response_model=UserOut)
+async def get_user_by_id(
+    user_id: str,
+    current_user: UserOut = Depends(get_current_active_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """
+    Get user details by id.
+    Allowed for:
+    - Admin: can view any user
+    - The user themselves (current_user.id == user_id)
+    - Manager: can view users whose assigned sites intersect with manager's assigned sites
+    """
+    user = await user_service.get_by_id(user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User '{user_id}' not found",
+        )
+
+    if current_user.role == "Admin" or current_user.id == user_id:
+        return user
+
+    if current_user.role == "Manager":
+        manager_sites = set(current_user.assigned_sites or [])
+        user_sites = set(user.assigned_sites or [])
+        if manager_sites.intersection(user_sites):
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: User is outside your assigned site scope",
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Operation requires elevated privileges to inspect other users",
+    )
+
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)

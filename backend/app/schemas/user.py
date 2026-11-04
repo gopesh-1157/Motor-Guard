@@ -50,6 +50,22 @@ class UserUpdate(BaseModel):
         return v
 
 
+class UserProfileUpdate(BaseModel):
+    email: Optional[str] = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    current_password: Optional[str] = None
+    password: Optional[str] = Field(default=None, min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def check_password_complexity(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            valid, err = validate_password_strength(v)
+            if not valid:
+                raise ValueError(err)
+        return v
+
+
+
 
 class UserOut(UserBase):
     id: Optional[str] = None

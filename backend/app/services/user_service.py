@@ -172,14 +172,76 @@ class UserService:
 
         return user
 
-    async def list_users(self, skip: int = 0, limit: int = 50) -> List[UserOut]:
-        """List active/registered users."""
-        cursor = self.collection.find({}).skip(skip).limit(limit)
+    async def list_users(self, skip: int = 0, limit: int = 50, site_filter: Optional[List[str]] = None) -> List[UserOut]:
+        """List active/registered users, optionally filtered by assigned site scopes."""
+        query = {}
+        if site_filter is not None:
+            query["assigned_sites"] = {"$in": site_filter}
+        cursor = self.collection.find(query).skip(skip).limit(limit)
         users = []
         async for doc in cursor:
             doc["id"] = str(doc.pop("_id", ""))
             users.append(UserOut(**doc))
         return users
+
+    async def update_profile(
+        self,
+        user_id: str,
+        email: Optional[str] = None,
+        password: Optional[str] = None,
+        current_password: Optional[str] = None,
+    ) -> UserOut:
+        """Update authenticated user's self profile (email or password) with security validation and audit trail."""
+        from bson import ObjectId
+        from fastapi import HTTPException, status
+        try:
+            oid = ObjectId(user_id)
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{user_id}' not found")
+
+        existing = await self.collection.find_one({"_id": oid})
+        if not existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{user_id}' not found")
+
+        now = datetime.now(timezone.utc)
+        update_fields = {}
+        if email and email != existing.get("email"):
+            duplicate_email = await self.collection.find_one({"email": email, "_id": {"$ne": oid}})
+            if duplicate_email:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Email '{email}' is already registered",
+                )
+            update_fields["email"] = email
+
+        if password:
+            if not current_password:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Current password is required to change password",
+                )
+            if not verify_password(current_password, existing.get("password_hash", "")):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Incorrect current password",
+                )
+            update_fields["password_hash"] = get_password_hash(password)
+            update_fields["session_revoked_at"] = now
+
+        if update_fields:
+            update_fields["updated_at"] = now
+            await self.collection.update_one({"_id": oid}, {"$set": update_fields})
+            await self._audit(
+                action="UPDATE_SELF_PROFILE",
+                user=existing.get("username", user_id),
+                target_id=existing.get("username", user_id),
+                details={"updated_fields": list(update_fields.keys())},
+            )
+
+        updated_doc = await self.collection.find_one({"_id": oid})
+        updated_doc["id"] = str(updated_doc.pop("_id", ""))
+        return UserOut(**updated_doc)
+
 
     async def list_technicians(self, site_id: Optional[str] = None) -> List[UserOut]:
         """List active users with 'Technician' role for work order assignment."""
