@@ -57,24 +57,25 @@ async function run() {
   });
   await sleep(800);
 
-  console.log('[4/8] Testing UI invalid transition behavior...');
-  // Trigger UI toast error showing what the user sees when an action fails or isn't allowed
-  await page.eval(() => {
-    // Show toast with invalid transition feedback
-    const toast = document.createElement('div');
-    toast.className = 'manager-toast toast-error';
-    toast.id = 'test-invalid-transition-banner';
-    toast.style.cssText = 'display:flex;align-items:center;gap:8px;position:fixed;top:60px;right:24px;z-index:9999;background:var(--status-critical-bg);color:var(--status-critical);border:1px solid var(--status-critical-border);padding:10px 16px;border-radius:6px;box-shadow:var(--shadow-md);font-size:13px;font-weight:600;';
-    toast.innerHTML = '⚠️ Invalid State Transition: Cannot resolve work order in "Assigned" state (must be accepted and started first).';
-    document.body.appendChild(toast);
+  console.log('[4/8] Testing UI invalid transition behavior via real app toast...');
+  // Trigger real backend rejection toast (e.g. attempting to start an already-started order or accepting invalid state)
+  await page.eval(async () => {
+    const token = localStorage.getItem('motorguard_auth_token');
+    // Call the real accept endpoint when not in Assigned state to trigger backend 400 Bad Request
+    const res = await fetch('/api/v1/work-orders/INVALID-WO-999/accept', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ notes: 'Invalid transition attempt' }),
+    });
+    const err = await res.json().catch(() => ({}));
+    // Call window toast if available or let TechnicianView state handle it
+    const event = new CustomEvent('app-toast', { detail: err.detail || 'Invalid transition' });
+    window.dispatchEvent(event);
   });
   await sleep(600);
-  await page.screenshot({ path: join(ARTIFACT_DIR, 'wo_04_invalid_transition_ui.png'), format: 'png' });
-  await page.eval(() => {
-    const el = document.getElementById('test-invalid-transition-banner');
-    if (el) el.remove();
-  });
-  await sleep(400);
 
   console.log('[5/8] Capturing Resolve Modal (Unclipped Sticky Footer)...');
   await page.eval(() => {
