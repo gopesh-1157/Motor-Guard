@@ -7,7 +7,14 @@ import {
   History,
   Edit,
   PowerOff,
+  Radio,
 } from 'lucide-react'
+import { PageHeader } from './common/PageHeader'
+import { StatCard } from './common/StatCard'
+import { StatusBadge } from './common/StatusBadge'
+import { EmptyState } from './common/EmptyState'
+import { LoadingSkeleton } from './common/LoadingSkeleton'
+import { ErrorBanner } from './common/ErrorBanner'
 import type {
   RegisteredMotor,
   EnrolledDevice,
@@ -615,53 +622,92 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
       )}
 
       {/* Page Header */}
-      <div className="manager-header">
-        <div>
-          <div className="manager-pretitle">FLEET ENGINEERING &amp; HARDWARE PROVISIONING</div>
-          <h1 className="manager-title">Motor Management &amp; ESP32 Registry</h1>
-          <p className="manager-desc">
-            Register physical motors, configure multi-sensor calibration profiles, link edge telemetry nodes, and enforce deterministic safety trip limits.
-          </p>
-        </div>
+      <PageHeader
+        title="Motor Management & ESP32 Registry"
+        subtitle="Register physical motors, configure multi-sensor calibration profiles, link edge telemetry nodes, and enforce deterministic safety trip limits."
+        badge={
+          <StatusBadge
+            status={isManagerOrAdmin ? 'healthy' : 'neutral'}
+            label={isManagerOrAdmin ? 'CLEARANCE L3/L4 ACTIVE' : 'READ ONLY (CLEARANCE REQUIRED)'}
+          />
+        }
+        actions={
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                if (!isManagerOrAdmin) {
+                  onOpenLogin?.()
+                  return
+                }
+                loadAudit()
+                setIsAuditModalOpen(true)
+              }}
+              title={!isManagerOrAdmin ? 'Requires Manager or Admin clearance' : 'View audit trail'}
+            >
+              <History size={14} /> Audit Trail
+            </button>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <button
-            className="btn-secondary"
-            onClick={() => {
-              if (!isManagerOrAdmin) {
-                onOpenLogin?.()
-                return
-              }
-              loadAudit()
-              setIsAuditModalOpen(true)
-            }}
-            title={!isManagerOrAdmin ? 'Requires Manager or Admin clearance' : 'View audit trail'}
-          >
-            <History size={15} /> Audit Trail
-          </button>
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                if (!isManagerOrAdmin) {
+                  onOpenLogin?.()
+                  return
+                }
+                setIsEnrollDeviceModalOpen(true)
+              }}
+              title={!isManagerOrAdmin ? 'Requires Manager or Admin clearance' : 'Enroll an ESP32 device'}
+            >
+              <Cpu size={14} /> Enroll ESP32
+            </button>
 
-          <button
-            className="btn-secondary"
-            onClick={() => {
-              if (!isManagerOrAdmin) {
-                onOpenLogin?.()
-                return
-              }
-              setIsEnrollDeviceModalOpen(true)
-            }}
-            title={!isManagerOrAdmin ? 'Requires Manager or Admin clearance' : 'Enroll an ESP32 device'}
-          >
-            <Cpu size={15} /> Enroll ESP32
-          </button>
+            <button
+              className="btn-primary"
+              onClick={handleOpenWizard}
+              title={!isManagerOrAdmin ? 'Requires Level 3 Manager or Admin Clearance' : 'Register Motor'}
+            >
+              <Plus size={15} /> Register Physical Motor
+            </button>
+          </div>
+        }
+      />
 
-          <button
-            className="btn-primary"
-            onClick={handleOpenWizard}
-            title={!isManagerOrAdmin ? 'Requires Level 3 Manager or Admin Clearance' : 'Register Motor'}
-          >
-            <Plus size={16} /> Register Physical Motor
-          </button>
-        </div>
+      {/* Fleet Summary Stat Cards */}
+      <div className="kpi-summary-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+        <StatCard
+          label="Total Fleet"
+          value={registeredMotors.length}
+          subtext="Configured drive assets"
+          icon={<Cpu size={14} color="var(--brand-primary)" />}
+          onClick={() => setStatusFilter('ALL')}
+          className={statusFilter === 'ALL' ? 'active' : ''}
+        />
+        <StatCard
+          label="Active Drives"
+          value={registeredMotors.filter((m) => m.status === 'active').length}
+          subtext="Operational in roster"
+          status="healthy"
+          icon={<CheckCircle size={14} color="var(--status-healthy)" />}
+          onClick={() => setStatusFilter('active')}
+          className={statusFilter === 'active' ? 'active' : ''}
+        />
+        <StatCard
+          label="Standby / Inactive"
+          value={registeredMotors.filter((m) => m.status === 'inactive').length}
+          subtext="Decommissioned / Maint"
+          status="neutral"
+          icon={<PowerOff size={14} color="var(--text-muted)" />}
+          onClick={() => setStatusFilter('inactive')}
+          className={statusFilter === 'inactive' ? 'active' : ''}
+        />
+        <StatCard
+          label="Hardware Nodes"
+          value={devices.length}
+          subtext={`${devices.filter((d) => d.availability === 'online').length} online in broker`}
+          status="info"
+          icon={<Radio size={14} color="var(--status-hardware)" />}
+        />
       </div>
 
       {isManagerOrAdmin && (
@@ -691,15 +737,7 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
       )}
 
       {/* Error Notice */}
-      {errorMsg && (
-        <div className="critical-dispatch-banner">
-          <div className="banner-icon-pulse">⚠️</div>
-          <div className="banner-content">
-            <div className="banner-title">API Connection Alert</div>
-            <div className="banner-sub">{errorMsg}</div>
-          </div>
-        </div>
-      )}
+      {errorMsg && <ErrorBanner message={errorMsg} />}
 
       {/* Filter & Search Bar */}
       <div className="filter-controls-container">
@@ -767,14 +805,16 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
         </div>
 
         {isLoading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-            Loading motor registry...
+          <div style={{ padding: '24px' }}>
+            <LoadingSkeleton lines={6} />
           </div>
         ) : filteredMotors.length === 0 ? (
-          <div className="empty-incidents-box" style={{ margin: '20px' }}>
-            <div className="empty-icon">⚙</div>
-            <h3>No Motors Found</h3>
-            <p>No motors match your query or site filter. Click &ldquo;Register Physical Motor&rdquo; to add a new motor.</p>
+          <div style={{ padding: '24px' }}>
+            <EmptyState
+              icon={<Cpu size={36} />}
+              title="No Motors Found"
+              description="No motors match your query or site filter. Click 'Register Physical Motor' to configure a new drive asset."
+            />
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -815,9 +855,10 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
                             <span style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 600 }}>
                               {m.assigned_device_id}
                             </span>
-                            <span className={`badge ${isOnline ? 'online' : 'offline'}`} style={{ padding: '2px 5px', fontSize: '9px' }}>
-                              {isOnline ? 'ONLINE' : 'OFFLINE'}
-                            </span>
+                            <StatusBadge
+                              status={isOnline ? 'healthy' : 'neutral'}
+                              label={isOnline ? 'ONLINE' : 'OFFLINE'}
+                            />
                           </div>
                         ) : (
                           <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>— Unassigned —</span>
@@ -832,14 +873,24 @@ export const MotorManagementView: FC<MotorManagementViewProps> = ({
                         </div>
                       </td>
                       <td>
-                        <span className={`badge ${m.health_status.toLowerCase()}`}>
-                          {m.health_status.toUpperCase()}
-                        </span>
+                        <StatusBadge
+                          status={
+                            m.health_status.toUpperCase() === 'HEALTHY'
+                              ? 'healthy'
+                              : m.health_status.toUpperCase() === 'CRITICAL'
+                              ? 'critical'
+                              : m.health_status.toUpperCase() === 'WARNING'
+                              ? 'warning'
+                              : 'neutral'
+                          }
+                          label={m.health_status.toUpperCase()}
+                        />
                       </td>
                       <td>
-                        <span className={`badge ${m.status === 'active' ? 'online' : 'offline'}`}>
-                          {m.status.toUpperCase()}
-                        </span>
+                        <StatusBadge
+                          status={m.status === 'active' ? 'healthy' : 'neutral'}
+                          label={m.status.toUpperCase()}
+                        />
                       </td>
                       <td>
                         <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-muted)' }}>
