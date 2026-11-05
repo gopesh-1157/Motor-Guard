@@ -381,6 +381,27 @@ class TestDeviceEnrollmentAndAssignment:
         assert res.status_code == 400
         assert "already actively assigned" in res.json()["detail"]
 
+    @pytest.mark.asyncio
+    async def test_case_insensitive_device_heartbeat(self):
+        """Case variations in hardware device_id (e.g. ESP32-NODE-001 vs esp32-node-001) are recognized."""
+        mock_coll = AsyncMock()
+        mock_coll.find_one = AsyncMock(side_effect=[
+            None,  # exact match fails
+            {"device_id": "esp32-node-001", "enrollment_status": "enrolled", "assigned_motor_id": "MTR-775-001"}
+        ])
+        mock_coll.update_one = AsyncMock()
+
+        mock_db = MagicMock()
+        mock_db.__getitem__.return_value = mock_coll
+        svc = DeviceService(mock_db)
+
+        # Incoming hardware packet has UPPERCASE device_id
+        authorized = await svc.record_heartbeat_or_telemetry("ESP32-NODE-001", "MTR-775-001", update_liveness=True)
+        assert authorized is True
+        assert mock_coll.update_one.called
+        update_filter = mock_coll.update_one.call_args[0][0]
+        assert update_filter == {"device_id": "esp32-node-001"}
+
 
 class TestAuditAndLifecycle:
     """Tests for audit trail, configuration updates, and disabling motors."""

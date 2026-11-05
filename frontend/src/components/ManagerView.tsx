@@ -218,7 +218,7 @@ export const ManagerView: FC<ManagerViewProps> = ({
                         </span>
                         <span className="assigned-time">
                           {alert.assigned_at
-                            ? new Date(alert.assigned_at).toLocaleTimeString()
+                            ? new Date(!alert.assigned_at.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(alert.assigned_at) ? `${alert.assigned_at}Z` : alert.assigned_at).toLocaleTimeString()
                             : 'Pending'}
                         </span>
                       </div>

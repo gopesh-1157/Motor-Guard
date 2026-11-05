@@ -145,88 +145,62 @@ class MotorService:
         effective_thresholds: Optional[dict] = None,
     ) -> str:
         """
-        Calculates motor health status ('healthy', 'warning', 'critical', 'unknown'):
-        1. Active alerts in 'alerts' collection (if CRITICAL -> critical, if WARNING -> warning).
-        2. Physical sensors in latest telemetry evaluated against effective operational thresholds.
-        3. TinyML Edge Impulse inference health_status.
+        Calculates authoritative motor health status ('healthy', 'warning', 'critical', 'unknown').
+
+        PRIMARY ALGORITHM: Edge ML inference classification produced locally on the ESP32.
+        Fixed sensor thresholds, sensor hardware diagnostics, and network status NEVER classify motor health.
+        1. Active ML_INFERENCE alerts in 'alerts' collection (if CRITICAL_INFERENCE_FAULT -> critical, if WARNING_INFERENCE_ANOMALY -> warning).
+        2. Validated Edge ML classification in latest telemetry.
+        3. Returns 'unknown' if telemetry is stale, offline, inference is unavailable/invalid, or missing.
         """
+        # 1. Check active Edge ML alerts in database (excluding non-ML safety thresholds and diagnostics)
         if self.db is not None:
             try:
-                active_critical = await self.db["alerts"].find_one({
+                active_ml_critical = await self.db["alerts"].find_one({
                     "motor_id": motor_id,
                     "state": "ACTIVE",
+                    "category": "ML_INFERENCE",
                     "severity": "CRITICAL",
                 })
-                if active_critical:
+                if active_ml_critical:
                     return "critical"
 
-                active_warning = await self.db["alerts"].find_one({
+                active_ml_warning = await self.db["alerts"].find_one({
                     "motor_id": motor_id,
                     "state": "ACTIVE",
+                    "category": "ML_INFERENCE",
                     "severity": "WARNING",
                 })
-                if active_warning:
+                if active_ml_warning:
                     return "warning"
             except Exception as e:
-                logger.debug("Error checking active alerts for motor %s: %s", motor_id, e)
+                logger.debug("Error checking active ML alerts for motor %s: %s", motor_id, e)
 
+        # 2. Authoritative Edge ML inference from latest telemetry
         if last_telem:
             if effective_thresholds is None:
                 effective_thresholds = await self.get_effective_thresholds(motor_doc)
-            sensors = last_telem.get("sensors", {})
-            sensor_status = last_telem.get("sensor_status", {})
-            inf = last_telem.get("inference", {})
-            temp = sensors.get("temperature_c")
-            curr = sensors.get("current_a")
-            vib = sensors.get("vibration_g_rms")
-            vib_peak = (
-                sensors.get("vibration_g_peak")
-                or sensors.get("vibration_peak_g")
-                or sensors.get("peak_shock_g")
-            )
 
-            # 1. Check for disconnected or out-of-range sensors
-            if (
-                sensor_status.get("current") in ("DISCONNECTED", "UNAVAILABLE", "OUT_OF_RANGE")
-                or sensor_status.get("vibration") in ("DISCONNECTED", "UNAVAILABLE", "OUT_OF_RANGE")
-            ):
-                return "critical"
-            if sensor_status.get("temperature") in ("DISCONNECTED", "UNAVAILABLE", "OUT_OF_RANGE"):
-                return "warning"
-
-            # 2. Check if all sensor readings are missing / null
-            if temp is None and curr is None and vib is None and vib_peak is None:
-                return "unknown"
-
-            peak_crit = effective_thresholds.get("peak_vibration_critical_g", 0.800)
-            peak_warn = effective_thresholds.get("peak_vibration_g", 0.350)
-
-            # 3. Check physical threshold violations (>= for warning/critical equality)
-            if (
-                (temp is not None and temp >= effective_thresholds["temperature_critical_c"])
-                or (curr is not None and curr >= effective_thresholds["current_critical_a"])
-                or (vib is not None and vib >= effective_thresholds["vibration_critical_g"])
-                or (vib_peak is not None and peak_crit is not None and vib_peak >= peak_crit)
-            ):
-                return "critical"
-
-            if (
-                (temp is not None and temp >= effective_thresholds["temperature_warning_c"])
-                or (curr is not None and curr >= effective_thresholds["current_warning_a"])
-                or (vib is not None and vib >= effective_thresholds["vibration_warning_g"])
-                or (vib_peak is not None and peak_warn is not None and vib_peak >= peak_warn)
-            ):
-                return "warning"
-
-            # 4. Freshness Gate: Stale or offline telemetry is NEVER classified as healthy.
+            # Freshness Gate: Stale or offline telemetry is NEVER classified as healthy or faulty
             freshness = self._telemetry_freshness(last_telem, effective_thresholds)
             if freshness != "fresh":
                 return "unknown"
 
-            if inf.get("health_status") in ("healthy", "warning", "critical"):
-                return inf["health_status"]
+            inf = last_telem.get("inference", {})
+            if not inf:
+                return "unknown"
 
-            return "healthy"
+            inf_status = inf.get("status")
+            # Inference failure, unpredicted, or error: report unknown (never fallback to thresholds or fake healthy)
+            if inf_status in ("MODEL_ERROR", "ERROR", "UNAVAILABLE", "MODEL_UNAVAILABLE", "INPUT_INVALID", "FAILED") or inf.get("model_error"):
+                return "unknown"
+
+            pred_health = inf.get("health_status")
+            if inf_status == "PREDICTED" or (inf_status is None and pred_health in ("healthy", "warning", "critical")):
+                if pred_health in ("healthy", "warning", "critical"):
+                    return pred_health
+
+            return "unknown"
 
         return motor_doc.get("health_status", "unknown")
 
@@ -291,9 +265,12 @@ class MotorService:
             elif current_user.role == "Technician":
                 is_assigned = motor_id in (current_user.assigned_motors or [])
                 if not is_assigned and self.db is not None:
+                    tech_clauses = [{"assigned_to_user_id": current_user.username}]
+                    if current_user.id:
+                        tech_clauses.append({"assigned_to": current_user.id})
                     wo = await self.db["work_orders"].find_one({
                         "motor_id": motor_id,
-                        "assigned_to_user_id": current_user.username,
+                        "$or": tech_clauses,
                     })
                     if wo:
                         is_assigned = True
@@ -336,7 +313,10 @@ class MotorService:
             elif current_user.role == "Technician":
                 tech_motors = set(current_user.assigned_motors or [])
                 if self.db is not None:
-                    cursor_wo = self.db["work_orders"].find({"assigned_to_user_id": current_user.username})
+                    tech_clauses = [{"assigned_to_user_id": current_user.username}]
+                    if current_user.id:
+                        tech_clauses.append({"assigned_to": current_user.id})
+                    cursor_wo = self.db["work_orders"].find({"$or": tech_clauses})
                     async for wo in cursor_wo:
                         if "motor_id" in wo:
                             tech_motors.add(wo["motor_id"])

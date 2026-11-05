@@ -14,84 +14,124 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
   const trendChartRef = useRef<HTMLDivElement>(null)
   const [displayUnit, setDisplayUnit] = useState<'acceleration' | 'velocity'>('velocity')
 
+  // Real-time theme synchronization
+  const [currentTheme, setCurrentTheme] = useState<'dark' | 'light'>(() => {
+    return (typeof document !== 'undefined' && (document.documentElement.getAttribute('data-theme') as 'dark' | 'light')) || 'dark'
+  })
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      const t = (document.documentElement.getAttribute('data-theme') as 'dark' | 'light') || 'dark'
+      setCurrentTheme(t)
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+
+  const isDark = currentTheme !== 'light'
+
   // Compute diagnostics
   const spectrumData = useMemo(() => computeVibrationDiagnostics(motor), [motor])
   const rulData = useMemo(() => computeRULPrognostics(motor), [motor])
+  const maxFreq = spectrumData.frequencies[spectrumData.frequencies.length - 1] || 400
+
+  // Colors aligned with industrial theme
+  const axisColor = isDark ? '#334155' : '#cbd5e1'
+  const textColor = isDark ? '#94a3b8' : '#64748b'
+  const splitColor = isDark ? 'rgba(51, 65, 85, 0.35)' : 'rgba(226, 232, 240, 0.75)'
+  const seriesColor = isDark ? '#06b6d4' : '#0284c7'
 
   // Initialize FFT Chart
   useEffect(() => {
     if (!chartRef.current) return
-    const chart = echarts.init(chartRef.current, 'dark')
+    const chart = echarts.init(chartRef.current, isDark ? 'dark' : undefined)
 
     const isVel = displayUnit === 'velocity'
     const amplitudes = isVel ? spectrumData.amplitudes_mms : spectrumData.amplitudes_g
-    const unitLabel = isVel ? 'mm/s RMS' : 'g'
+    const unitLabel = isVel ? 'mm/s RMS' : 'g RMS'
 
     // Build mark points for significant defect peaks
-    const markPoints = spectrumData.peaks.map((p) => ({
-      name: p.label,
-      coord: [p.frequency_hz, isVel ? p.amplitude_mms : p.amplitude_g],
-      value: `${isVel ? p.amplitude_mms : p.amplitude_g} ${unitLabel}`,
-      itemStyle: {
-        color: p.severity === 'critical' ? '#ef4444' : p.severity === 'warning' ? '#f59e0b' : '#06b6d4',
-      },
-      label: {
-        formatter: p.label,
-        position: 'top' as const,
-        fontSize: 10,
-        color: '#f8fafc',
-      },
-    }))
+    const markPoints = spectrumData.peaks
+      .filter((p) => p.frequency_hz <= maxFreq)
+      .map((p) => ({
+        name: p.label,
+        coord: [p.frequency_hz, isVel ? p.amplitude_mms : p.amplitude_g],
+        value: `${isVel ? p.amplitude_mms : p.amplitude_g} ${unitLabel}`,
+        itemStyle: {
+          color: p.severity === 'critical' ? '#ef4444' : p.severity === 'warning' ? '#f59e0b' : seriesColor,
+        },
+        label: {
+          formatter: p.label,
+          position: 'top' as const,
+          fontSize: 10,
+          color: isDark ? '#f8fafc' : '#0f172a',
+        },
+      }))
 
-    // Build vertical mark lines for bearing fault frequencies
-    const markLines = [
-      {
+    // Build vertical mark lines for bearing fault frequencies that lie within spectrum bounds
+    const markLines: any[] = []
+
+    if (spectrumData.running_frequency_hz <= maxFreq) {
+      markLines.push({
         xAxis: spectrumData.running_frequency_hz,
         name: '1x RPM',
-        lineStyle: { color: '#06b6d4', type: 'dashed' as const, width: 1.5 },
-        label: { formatter: '1x RPM', position: 'end' as const, color: '#06b6d4', fontSize: 10 },
-      },
-      {
-        xAxis: Number((spectrumData.running_frequency_hz * 2).toFixed(1)),
+        lineStyle: { color: seriesColor, type: 'dashed' as const, width: 1.5 },
+        label: { formatter: '1x RPM', position: 'end' as const, color: seriesColor, fontSize: 10 },
+      })
+    }
+
+    const harm2x = Number((spectrumData.running_frequency_hz * 2).toFixed(1))
+    if (harm2x <= maxFreq) {
+      markLines.push({
+        xAxis: harm2x,
         name: '2x Harm',
         lineStyle: { color: '#8b5cf6', type: 'dashed' as const, width: 1.5 },
-        label: { formatter: '2x Misalign', position: 'end' as const, color: '#8b5cf6', fontSize: 10 },
-      },
-      {
+        label: { formatter: '2x Harm', position: 'end' as const, color: '#8b5cf6', fontSize: 10 },
+      })
+    }
+
+    if (spectrumData.bearing_frequencies.bpfo_hz <= maxFreq) {
+      markLines.push({
         xAxis: spectrumData.bearing_frequencies.bpfo_hz,
         name: 'BPFO',
         lineStyle: { color: '#ef4444', type: 'dotted' as const, width: 1.5 },
         label: { formatter: 'BPFO', position: 'end' as const, color: '#ef4444', fontSize: 10 },
-      },
-      {
+      })
+    }
+
+    if (spectrumData.bearing_frequencies.bpfi_hz <= maxFreq) {
+      markLines.push({
         xAxis: spectrumData.bearing_frequencies.bpfi_hz,
         name: 'BPFI',
         lineStyle: { color: '#f59e0b', type: 'dotted' as const, width: 1.5 },
         label: { formatter: 'BPFI', position: 'end' as const, color: '#f59e0b', fontSize: 10 },
-      },
-    ]
+      })
+    }
 
     const option: echarts.EChartsOption = {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'cross', lineStyle: { color: '#06b6d4', type: 'dashed' } },
+        axisPointer: { type: 'cross', lineStyle: { color: seriesColor, type: 'dashed' } },
+        backgroundColor: isDark ? '#0f172a' : '#ffffff',
+        borderColor: isDark ? '#334155' : '#e2e8f0',
+        textStyle: { color: isDark ? '#f8fafc' : '#0f172a' },
         formatter: (params: any) => {
           if (!Array.isArray(params) || params.length === 0) return ''
           const item = params[0]
           return `
-            <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 4px;">
-              <strong style="color: #94a3b8;">Frequency:</strong> ${item.axisValue} Hz<br/>
-              <strong style="color: #06b6d4;">Amplitude:</strong> ${item.data} ${unitLabel}
+            <div style="font-family: var(--font-mono, monospace); font-size: 12px; padding: 4px;">
+              <span style="color: ${textColor};">Frequency:</span> <strong>${item.axisValue} Hz</strong><br/>
+              <span style="color: ${seriesColor};">Amplitude:</span> <strong>${item.data} ${unitLabel}</strong>
             </div>
           `
         },
       },
       grid: {
-        top: 45,
+        top: 40,
         right: 25,
         bottom: 35,
-        left: 48,
+        left: 54,
         containLabel: false,
       },
       xAxis: {
@@ -100,17 +140,17 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
         name: 'Frequency (Hz)',
         nameLocation: 'middle',
         nameGap: 24,
-        axisLine: { lineStyle: { color: '#334155' } },
-        axisLabel: { color: '#94a3b8', fontSize: 10, interval: 39 }, // Label every ~40 Hz
-        splitLine: { show: true, lineStyle: { color: 'rgba(51, 65, 85, 0.3)', type: 'dashed' } },
+        axisLine: { lineStyle: { color: axisColor } },
+        axisLabel: { color: textColor, fontSize: 10, interval: Math.round(spectrumData.frequencies.length / 10) },
+        splitLine: { show: true, lineStyle: { color: splitColor, type: 'dashed' } },
       },
       yAxis: {
         type: 'value',
         name: unitLabel,
-        nameTextStyle: { color: '#94a3b8', fontSize: 11 },
-        axisLine: { lineStyle: { color: '#334155' } },
-        axisLabel: { color: '#94a3b8', fontSize: 10 },
-        splitLine: { show: true, lineStyle: { color: 'rgba(51, 65, 85, 0.3)', type: 'dashed' } },
+        nameTextStyle: { color: textColor, fontSize: 11 },
+        axisLine: { lineStyle: { color: axisColor } },
+        axisLabel: { color: textColor, fontSize: 10 },
+        splitLine: { show: true, lineStyle: { color: splitColor, type: 'dashed' } },
       },
       series: [
         {
@@ -120,15 +160,15 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
           smooth: true,
           data: amplitudes,
           lineStyle: {
-            color: '#06b6d4',
+            color: seriesColor,
             width: 1.8,
-            shadowColor: 'rgba(6, 182, 212, 0.4)',
-            shadowBlur: 6,
+            shadowColor: isDark ? 'rgba(6, 182, 212, 0.4)' : 'rgba(2, 132, 199, 0.3)',
+            shadowBlur: 4,
           },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(6, 182, 212, 0.28)' },
-              { offset: 1, color: 'rgba(6, 182, 212, 0.01)' },
+              { offset: 0, color: isDark ? 'rgba(6, 182, 212, 0.28)' : 'rgba(2, 132, 199, 0.20)' },
+              { offset: 1, color: isDark ? 'rgba(6, 182, 212, 0.01)' : 'rgba(2, 132, 199, 0.01)' },
             ]),
           },
           markPoint: {
@@ -151,12 +191,12 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
       window.removeEventListener('resize', handleResize)
       chart.dispose()
     }
-  }, [spectrumData, displayUnit])
+  }, [spectrumData, displayUnit, isDark, maxFreq, seriesColor, axisColor, textColor, splitColor])
 
   // Initialize RUL Trend Chart
   useEffect(() => {
     if (!trendChartRef.current) return
-    const trendChart = echarts.init(trendChartRef.current, 'dark')
+    const trendChart = echarts.init(trendChartRef.current, isDark ? 'dark' : undefined)
 
     const days = rulData.projected_trend.map((p) => `Day ${p.day}`)
     const projectedG = rulData.projected_trend.map((p) => p.projected_vibration_g)
@@ -165,6 +205,9 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
+        backgroundColor: isDark ? '#0f172a' : '#ffffff',
+        borderColor: isDark ? '#334155' : '#e2e8f0',
+        textStyle: { color: isDark ? '#f8fafc' : '#0f172a' },
         formatter: (params: any) => {
           if (!Array.isArray(params) || params.length === 0) return ''
           const item = params[0]
@@ -172,24 +215,24 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
         },
       },
       grid: {
-        top: 25,
+        top: 20,
         right: 15,
         bottom: 25,
-        left: 40,
+        left: 45,
       },
       xAxis: {
         type: 'category',
         data: days,
-        axisLine: { lineStyle: { color: '#334155' } },
-        axisLabel: { color: '#94a3b8', fontSize: 9, interval: 2 },
+        axisLine: { lineStyle: { color: axisColor } },
+        axisLabel: { color: textColor, fontSize: 9, interval: 2 },
       },
       yAxis: {
         type: 'value',
         name: 'Vib (g)',
-        nameTextStyle: { color: '#94a3b8', fontSize: 10 },
-        axisLine: { lineStyle: { color: '#334155' } },
-        axisLabel: { color: '#94a3b8', fontSize: 9 },
-        splitLine: { show: true, lineStyle: { color: 'rgba(51, 65, 85, 0.25)', type: 'dashed' } },
+        nameTextStyle: { color: textColor, fontSize: 10 },
+        axisLine: { lineStyle: { color: axisColor } },
+        axisLabel: { color: textColor, fontSize: 9 },
+        splitLine: { show: true, lineStyle: { color: splitColor, type: 'dashed' } },
       },
       series: [
         {
@@ -224,39 +267,37 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
       window.removeEventListener('resize', handleResize)
       trendChart.dispose()
     }
-  }, [rulData])
+  }, [rulData, isDark, axisColor, textColor, splitColor])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* 1. Header Bar with ISO 10816 Severity Indicator */}
       <div
+        className="card"
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: '12px',
-          background: 'var(--bg-card, rgba(15, 23, 42, 0.6))',
           padding: '14px 18px',
-          borderRadius: 'var(--radius-md, 10px)',
-          border: '1px solid var(--border-main, rgba(148, 163, 184, 0.15))',
         }}
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Activity size={18} color="#06b6d4" />
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--text-main, #f8fafc)' }}>
+            <Activity size={18} color={seriesColor} />
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--text-main)' }}>
               FFT Vibration Frequency Spectrum & ISO 10816-3 Diagnostics
             </h3>
           </div>
-          <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>
-            800 Hz Nyquist Band (0–400 Hz) • Harmonics & Bearing Fault Multipliers (BPFO / BPFI) • Shaft Speed: {spectrumData.rpm} RPM ({spectrumData.running_frequency_hz} Hz)
+          <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+            Nyquist Band (0–{maxFreq} Hz) • Harmonics & Bearing Fault Multipliers (BPFO / BPFI) • Shaft Speed: {spectrumData.rpm} RPM ({spectrumData.running_frequency_hz} Hz)
           </p>
         </div>
 
         {/* Unit Selector Toggle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted, #94a3b8)' }}>Spectral Unit:</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Spectral Unit:</span>
           <div className="segmented-control" role="group">
             <button
               className={`segmented-btn ${displayUnit === 'velocity' ? 'active' : ''}`}
@@ -280,33 +321,31 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
           gap: '12px',
         }}
       >
         {/* ISO 10816-3 Velocity Classification Card */}
         <div
+          className="card"
           style={{
-            background: 'var(--bg-card, rgba(15, 23, 42, 0.6))',
             padding: '14px',
-            borderRadius: 'var(--radius-sm, 8px)',
-            border: `1px solid ${
+            borderColor:
               spectrumData.iso_rating_status === 'critical'
-                ? 'rgba(239, 68, 68, 0.4)'
+                ? 'var(--status-critical)'
                 : spectrumData.iso_rating_status === 'warning'
-                ? 'rgba(245, 158, 11, 0.4)'
-                : 'rgba(6, 182, 212, 0.3)'
-            }`,
+                ? 'var(--status-warning)'
+                : 'var(--border-main)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted, #94a3b8)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>
               ISO 10816-3 SEVERITY
             </span>
-            <Layers size={14} color="#06b6d4" />
+            <Layers size={14} color={seriesColor} />
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-main, #f8fafc)', fontFamily: 'JetBrains Mono' }}>
-            {spectrumData.iso_velocity_mms_rms} <span style={{ fontSize: '12px', fontWeight: 400 }}>mm/s RMS</span>
+          <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
+            {spectrumData.iso_velocity_mms_rms} <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>mm/s RMS</span>
           </div>
           <div
             style={{
@@ -315,35 +354,28 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
               fontWeight: 600,
               color:
                 spectrumData.iso_rating_status === 'critical'
-                  ? '#ef4444'
+                  ? 'var(--status-critical)'
                   : spectrumData.iso_rating_status === 'warning'
-                  ? '#f59e0b'
-                  : '#10b981',
+                  ? 'var(--status-warning)'
+                  : 'var(--status-healthy)',
             }}
           >
             ● {spectrumData.iso_zone}
           </div>
-          <div style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)', marginTop: '4px' }}>
-            Standard Class I Electric Motor (up to 15 kW)
+          <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Class I Electric Motors (up to 15 kW)
           </div>
         </div>
 
         {/* Bearing Fault Frequencies Card */}
-        <div
-          style={{
-            background: 'var(--bg-card, rgba(15, 23, 42, 0.6))',
-            padding: '14px',
-            borderRadius: 'var(--radius-sm, 8px)',
-            border: '1px solid var(--border-main, rgba(148, 163, 184, 0.15))',
-          }}
-        >
+        <div className="card" style={{ padding: '14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted, #94a3b8)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>
               BEARING FAULT FREQS
             </span>
             <Cpu size={14} color="#8b5cf6" />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '11px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
             <div>
               <span style={{ color: '#ef4444', fontWeight: 600 }}>BPFO:</span> {spectrumData.bearing_frequencies.bpfo_hz} Hz
             </div>
@@ -351,55 +383,53 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
               <span style={{ color: '#f59e0b', fontWeight: 600 }}>BPFI:</span> {spectrumData.bearing_frequencies.bpfi_hz} Hz
             </div>
             <div>
-              <span style={{ color: '#94a3b8' }}>BSF:</span> {spectrumData.bearing_frequencies.bsf_hz} Hz
+              <span style={{ color: 'var(--text-muted)' }}>BSF:</span> {spectrumData.bearing_frequencies.bsf_hz} Hz
             </div>
             <div>
-              <span style={{ color: '#94a3b8' }}>FTF:</span> {spectrumData.bearing_frequencies.ftf_hz} Hz
+              <span style={{ color: 'var(--text-muted)' }}>FTF:</span> {spectrumData.bearing_frequencies.ftf_hz} Hz
             </div>
           </div>
-          <div style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)', marginTop: '6px' }}>
+          <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '6px' }}>
             Deep-groove 608/6204 bearing geometry
           </div>
         </div>
 
         {/* Remaining Useful Life (RUL) Card */}
         <div
+          className="card"
           style={{
-            background: 'var(--bg-card, rgba(15, 23, 42, 0.6))',
             padding: '14px',
-            borderRadius: 'var(--radius-sm, 8px)',
-            border: `1px solid ${
+            borderColor:
               rulData.failure_risk_level === 'CRITICAL'
-                ? 'rgba(239, 68, 68, 0.4)'
+                ? 'var(--status-critical)'
                 : rulData.failure_risk_level === 'ELEVATED'
-                ? 'rgba(245, 158, 11, 0.4)'
-                : 'rgba(16, 185, 129, 0.3)'
-            }`,
+                ? 'var(--status-warning)'
+                : 'var(--border-main)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted, #94a3b8)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>
               PROGNOSTIC RUL
             </span>
-            <Clock size={14} color="#10b981" />
+            <Clock size={14} color="var(--status-healthy)" />
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-main, #f8fafc)', fontFamily: 'JetBrains Mono' }}>
-            {rulData.estimated_rul_hours.toLocaleString()} <span style={{ fontSize: '12px', fontWeight: 400 }}>Hours</span>
+          <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
+            {rulData.estimated_rul_hours.toLocaleString()} <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>Hours</span>
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)', marginTop: '4px' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
             ~{rulData.projected_days_to_maintenance} Days to Planned Overhaul
           </div>
           <div
             style={{
               marginTop: '4px',
-              fontSize: '10px',
+              fontSize: '11px',
               fontWeight: 600,
               color:
                 rulData.failure_risk_level === 'CRITICAL'
-                  ? '#ef4444'
+                  ? 'var(--status-critical)'
                   : rulData.failure_risk_level === 'ELEVATED'
-                  ? '#f59e0b'
-                  : '#10b981',
+                  ? 'var(--status-warning)'
+                  : 'var(--status-healthy)',
             }}
           >
             Risk Level: {rulData.failure_risk_level}
@@ -407,82 +437,66 @@ export const FFTSpectrumViewer: FC<FFTSpectrumViewerProps> = ({ motor }) => {
         </div>
 
         {/* Degradation State & Dominant Factor */}
-        <div
-          style={{
-            background: 'var(--bg-card, rgba(15, 23, 42, 0.6))',
-            padding: '14px',
-            borderRadius: 'var(--radius-sm, 8px)',
-            border: '1px solid var(--border-main, rgba(148, 163, 184, 0.15))',
-          }}
-        >
+        <div className="card" style={{ padding: '14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted, #94a3b8)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)' }}>
               HEALTH INDEX
             </span>
-            <ShieldAlert size={14} color="#f59e0b" />
+            <ShieldAlert size={14} color="var(--status-warning)" />
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-main, #f8fafc)', fontFamily: 'JetBrains Mono' }}>
-            {rulData.health_index} <span style={{ fontSize: '12px', fontWeight: 400 }}>/ 100</span>
+          <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
+            {rulData.health_index} <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>/ 100</span>
           </div>
-          <div style={{ marginTop: '6px' }}>
-            <div style={{ height: '4px', background: 'rgba(51, 65, 85, 0.5)', borderRadius: '2px', overflow: 'hidden' }}>
+          <div style={{ marginTop: '8px' }}>
+            <div style={{ height: '6px', background: 'var(--bg-subtle)', borderRadius: '3px', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
               <div
                 style={{
                   height: '100%',
                   width: `${rulData.health_index}%`,
                   background:
                     rulData.health_index > 75
-                      ? '#10b981'
+                      ? 'var(--status-healthy)'
                       : rulData.health_index > 40
-                      ? '#f59e0b'
-                      : '#ef4444',
+                      ? 'var(--status-warning)'
+                      : 'var(--status-critical)',
+                  transition: 'width 0.3s ease',
                 }}
               />
             </div>
           </div>
-          <div style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)', marginTop: '6px' }}>
-            Primary Driver: <strong style={{ color: '#f8fafc' }}>{rulData.dominant_stress_factor.replace('_', ' ')}</strong>
+          <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '6px' }}>
+            Primary Driver: <strong style={{ color: 'var(--text-main)' }}>{rulData.dominant_stress_factor.replace('_', ' ')}</strong>
           </div>
         </div>
       </div>
 
       {/* 3. Main FFT Spectrum Chart Viewport */}
-      <div
-        style={{
-          background: 'var(--bg-card, rgba(15, 23, 42, 0.6))',
-          borderRadius: 'var(--radius-md, 10px)',
-          border: '1px solid var(--border-main, rgba(148, 163, 184, 0.15))',
-          padding: '16px 16px 8px 16px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main, #f8fafc)' }}>
-            FFT Frequency Spectrum Breakdown (0 – 400 Hz)
+      <div className="card" style={{ padding: '16px 16px 8px 16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>
+            FFT Frequency Spectrum Breakdown (0 – {maxFreq} Hz)
           </span>
-          <div style={{ display: 'flex', gap: '12px', fontSize: '11px' }}>
-            <span style={{ color: '#06b6d4' }}>● 1x RPM ({spectrumData.running_frequency_hz} Hz)</span>
+          <div style={{ display: 'flex', gap: '12px', fontSize: '11px', flexWrap: 'wrap' }}>
+            <span style={{ color: seriesColor }}>● 1x RPM ({spectrumData.running_frequency_hz} Hz)</span>
             <span style={{ color: '#8b5cf6' }}>● 2x Harmonics ({(spectrumData.running_frequency_hz * 2).toFixed(1)} Hz)</span>
-            <span style={{ color: '#ef4444' }}>● BPFO ({spectrumData.bearing_frequencies.bpfo_hz} Hz)</span>
-            <span style={{ color: '#f59e0b' }}>● BPFI ({spectrumData.bearing_frequencies.bpfi_hz} Hz)</span>
+            {spectrumData.bearing_frequencies.bpfo_hz <= maxFreq && (
+              <span style={{ color: '#ef4444' }}>● BPFO ({spectrumData.bearing_frequencies.bpfo_hz} Hz)</span>
+            )}
+            {spectrumData.bearing_frequencies.bpfi_hz <= maxFreq && (
+              <span style={{ color: '#f59e0b' }}>● BPFI ({spectrumData.bearing_frequencies.bpfi_hz} Hz)</span>
+            )}
           </div>
         </div>
         <div ref={chartRef} style={{ width: '100%', height: '280px' }} />
       </div>
 
       {/* 4. 30-Day Prognostic Wear Projection Chart */}
-      <div
-        style={{
-          background: 'var(--bg-card, rgba(15, 23, 42, 0.6))',
-          borderRadius: 'var(--radius-md, 10px)',
-          border: '1px solid var(--border-main, rgba(148, 163, 184, 0.15))',
-          padding: '16px 16px 8px 16px',
-        }}
-      >
+      <div className="card" style={{ padding: '16px 16px 8px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main, #f8fafc)' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-main)' }}>
             30-Day Prognostic Degradation Trajectory (Vibration Wear vs. Critical 0.8g Threshold)
           </span>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted, #94a3b8)' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
             Confidence: {(rulData.confidence * 100).toFixed(0)}%
           </span>
         </div>

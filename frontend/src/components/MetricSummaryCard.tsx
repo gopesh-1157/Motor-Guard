@@ -145,12 +145,12 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
                 fill="none"
                 stroke={
                   statusClass === 'critical'
-                    ? '#EF4444'
+                    ? 'var(--status-critical)'
                     : statusClass === 'warning'
-                    ? '#F59E0B'
+                    ? 'var(--status-warning)'
                     : statusClass === 'offline' || statusClass === 'unknown'
-                    ? '#6B7280'
-                    : '#10B981'
+                    ? 'var(--status-offline)'
+                    : 'var(--status-healthy)'
                 }
                 strokeWidth="1.75"
                 points={sparklinePoints}
@@ -176,9 +176,9 @@ export const MetricSummaryCard: FC<MetricSummaryCardProps> = ({
         {delta !== 0 && (
           <div className="measurement-delta-tag tabular-nums" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10.5px' }}>
             {isDeltaPositive ? (
-              <ArrowUpRight size={13} color="#F59E0B" />
+              <ArrowUpRight size={13} color="var(--status-warning)" />
             ) : (
-              <ArrowDownRight size={13} color="#10B981" />
+              <ArrowDownRight size={13} color="var(--status-healthy)" />
             )}
             <span>
               {isDeltaPositive ? '+' : ''}

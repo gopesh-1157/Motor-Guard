@@ -8,6 +8,7 @@ TelemetryIngestionService.
 """
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import logging
 import ssl
@@ -190,6 +191,18 @@ class MQTTSubscriber:
 
         self._message_count += 1
         payload_dict = validated.model_dump()
+
+        # If incoming hardware telemetry has uncalibrated RTC/1970 timestamp (e.g. ESP32 booted without internet NTP),
+        # attach authoritative gateway arrival time so that safety rules and real-time alerts function accurately.
+        if isinstance(payload_dict.get("timestamp"), str) and payload_dict["timestamp"].startswith("1970"):
+            now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            logger.info(
+                "Hardware node %s clock uncalibrated (%s); stamping authoritative gateway UTC time %s",
+                validated.device_id,
+                payload_dict["timestamp"],
+                now_iso,
+            )
+            payload_dict["timestamp"] = now_iso
 
         # Schedule the async callback on the main event loop
         if self._on_telemetry_callback and self._loop:

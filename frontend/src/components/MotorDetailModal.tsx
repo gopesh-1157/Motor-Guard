@@ -400,10 +400,12 @@ export const MotorDetailModal: FC<MotorDetailModalProps> = ({
                 <strong style={{ color: 'var(--text-muted)' }}>What was detected:</strong>
                 <div style={{ color: 'var(--text-main)', marginTop: '2px' }}>
                   {inference.health_status === 'critical'
-                    ? `Critical fault: ${sensors.vibration_g_rms && sensors.vibration_g_rms > vibCrit ? 'Excessive dynamic vibration' : sensors.temperature_c && sensors.temperature_c > tempCrit ? 'Ambient thermal spike' : 'Multi-sensor anomaly'} flagged by TinyML (${(inference.confidence * 100).toFixed(0)}% confidence).`
+                    ? `Critical fault diagnosed by Edge ML TinyML neural classifier (${(inference.confidence * 100).toFixed(0)}% confidence).`
                     : inference.health_status === 'warning'
-                    ? `Warning threshold exceeded on ${sensors.temperature_c && sensors.temperature_c > tempWarn ? 'ambient thermal sensor (DHT11)' : 'vibration sensor (ADXL345)'}.`
-                    : 'All physical sensor parameters (Temperature, Current, Vibration RMS) within baseline.'}
+                    ? `Warning anomaly diagnosed by Edge ML TinyML neural classifier (${(inference.confidence * 100).toFixed(0)}% confidence).`
+                    : inference.health_status === 'healthy'
+                    ? `Healthy operating state classified by Edge ML TinyML neural classifier (${(inference.confidence * 100).toFixed(0)}% confidence).`
+                    : `Inference unavailable or unpredicted: ${inference.status || 'UNKNOWN'}.`}
                 </div>
               </div>
 

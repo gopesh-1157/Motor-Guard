@@ -41,7 +41,7 @@ MQTT_TLS_INSECURE = os.getenv("MQTT_TLS_INSECURE", "false").lower() in ("true", 
 MQTT_TLS_CA_CERT = os.getenv("MQTT_TLS_CA_CERT", None)
 
 SAMPLE_REGEX = re.compile(
-    r"\[SAMPLE #(\d+)\] T:\s*([\d\.-]+|nan)\s*C\s*\|\s*I:\s*([\d\.-]+|nan)\s*A\s*\|\s*Vib:\s*([\d\.-]+|nan)\s*g\s*\|\s*AI:\s*(\w+)\s*\((\d+)%\)",
+    r"\[SAMPLE #(\d+)\] T:\s*([\d\.-]+|nan)\s*C\s*\|\s*I:\s*([\d\.-]+|nan)\s*A(?:\s*\(Pk:\s*[\d\.-]+(?:\s*A)?\))?\s*\|\s*Vib:\s*([\d\.-]+|nan)\s*g\s*\|\s*(?:AI|ML HEALTH):\s*(\w+)\s*\((\d+)%\)",
     re.IGNORECASE,
 )
 

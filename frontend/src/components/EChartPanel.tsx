@@ -59,6 +59,21 @@ export const EChartPanel: FC<EChartPanelProps> = ({
   const [isExpanded, setIsExpanded] = useState(false)
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
 
+  // Real-time theme detection
+  const [currentTheme, setCurrentTheme] = useState<'dark' | 'light'>(() => {
+    return (typeof document !== 'undefined' && (document.documentElement.getAttribute('data-theme') as 'dark' | 'light')) || 'dark'
+  })
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const observer = new MutationObserver(() => {
+      const t = (document.documentElement.getAttribute('data-theme') as 'dark' | 'light') || 'dark'
+      setCurrentTheme(t)
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+
   // Available chart types based on measurement nature
   const availableTypes: { key: ChartType; label: string }[] = useMemo(() => {
     if (metric === 'temperature') {
@@ -140,27 +155,42 @@ export const EChartPanel: FC<EChartPanelProps> = ({
     })
 
     const rawValues = filteredData.map((d) => d.value ?? null)
+    const isDark = currentTheme !== 'light'
 
-    // Series color choices
-    const metricColor =
-      metric === 'temperature' ? '#E65100' : metric === 'current' ? '#1565C0' : '#2E7D32'
+    // Theme-aligned series color choices
+    // Dark: Cyan (#22D3EE), Amber (#F59E0B), Teal (#14B8A6)
+    // Light: Deep Teal (#0F766E), Dark Orange (#C2410C), Cyan (#0891B2)
+    const metricColor = isDark
+      ? metric === 'temperature'
+        ? '#F59E0B'
+        : metric === 'current'
+        ? '#22D3EE'
+        : '#14B8A6'
+      : metric === 'temperature'
+      ? '#C2410C'
+      : metric === 'current'
+      ? '#0F766E'
+      : '#0891B2'
 
     // Configure mark lines for critical/warning thresholds
     const markLineData: any[] = []
+    const warnColor = isDark ? '#F59E0B' : '#B45309'
+    const critColor = isDark ? '#EF4444' : '#B91C1C'
+
     if (showThresholds && thresholdWarn != null) {
       markLineData.push({
         yAxis: thresholdWarn,
         name: 'Warning Limit',
-        lineStyle: { color: '#B7791F', type: 'dashed', width: 1.5 },
-        label: { formatter: `Warn ${thresholdWarn} ${unit}`, position: 'end', color: '#B7791F', fontSize: 10 },
+        lineStyle: { color: warnColor, type: 'dashed', width: 1.5 },
+        label: { formatter: `Warn ${thresholdWarn} ${unit}`, position: 'end', color: warnColor, fontSize: 10 },
       })
     }
     if (showThresholds && thresholdCrit != null) {
       markLineData.push({
         yAxis: thresholdCrit,
         name: 'Critical Trip',
-        lineStyle: { color: '#C43D43', type: 'dashed', width: 1.5 },
-        label: { formatter: `Trip ${thresholdCrit} ${unit}`, position: 'end', color: '#C43D43', fontSize: 10 },
+        lineStyle: { color: critColor, type: 'dashed', width: 1.5 },
+        label: { formatter: `Trip ${thresholdCrit} ${unit}`, position: 'end', color: critColor, fontSize: 10 },
       })
     }
 
@@ -189,9 +219,25 @@ export const EChartPanel: FC<EChartPanelProps> = ({
 
       option = {
         grid: { top: 25, right: 25, bottom: 40, left: 45 },
-        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-        xAxis: { type: 'category', data: binLabels, axisLabel: { fontSize: 10, rotate: 20 } },
-        yAxis: { type: 'value', name: 'Count' },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: isDark ? '#172235' : '#FFFFFF',
+          borderColor: isDark ? '#334155' : '#E2E8F0',
+          textStyle: { color: isDark ? '#F1F5F9' : '#0F172A' },
+          axisPointer: { type: 'shadow' },
+        },
+        xAxis: {
+          type: 'category',
+          data: binLabels,
+          axisLine: { lineStyle: { color: isDark ? '#334155' : '#CBD5E1' } },
+          axisLabel: { fontSize: 10, rotate: 20, color: isDark ? '#94A3B8' : '#64748B' },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Count',
+          axisLabel: { color: isDark ? '#94A3B8' : '#64748B' },
+          splitLine: { lineStyle: { color: isDark ? 'rgba(51, 65, 85, 0.45)' : '#E2E8F0', type: 'dashed' } },
+        },
         series: [
           {
             name: `${metric} Frequency`,
@@ -213,17 +259,30 @@ export const EChartPanel: FC<EChartPanelProps> = ({
         grid: { top: 30, right: 35, bottom: 40, left: 50 },
         tooltip: {
           trigger: 'axis',
-          axisPointer: { type: 'cross', label: { backgroundColor: '#20252B' } },
+          backgroundColor: isDark ? '#172235' : '#FFFFFF',
+          borderColor: isDark ? '#334155' : '#E2E8F0',
+          borderWidth: 1,
+          padding: [8, 12],
+          textStyle: { color: isDark ? '#F1F5F9' : '#0F172A' },
+          axisPointer: {
+            type: 'cross',
+            label: {
+              backgroundColor: isDark ? '#1E293B' : '#F1F5F9',
+              color: isDark ? '#F1F5F9' : '#0F172A',
+            },
+          },
           formatter: (params: any) => {
             const p = Array.isArray(params) ? params[0] : params
             const val = p.value != null ? Number(p.value).toFixed(metric === 'vibration' ? 3 : metric === 'current' ? 2 : 1) : 'N/A'
+            const textColor = isDark ? '#F1F5F9' : '#0F172A'
+            const subColor = isDark ? '#94A3B8' : '#64748B'
             return `
-              <div style="font-family: Inter, sans-serif; font-size: 12px; line-height: 1.4;">
-                <div style="color: #69727D; margin-bottom: 2px;">Time: <strong>${p.name}</strong></div>
+              <div style="font-family: Inter, sans-serif; font-size: 12px; line-height: 1.4; color: ${textColor};">
+                <div style="color: ${subColor}; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">Time: <strong>${p.name}</strong></div>
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};"></span>
-                  <span style="color:#20252B; font-weight:600;">${p.seriesName}:</span>
-                  <strong style="color:#20252B;">${val} ${unit}</strong>
+                  <span style="color:${subColor}; font-weight:500;">${p.seriesName}:</span>
+                  <strong style="color:${textColor}; font-family: 'JetBrains Mono', monospace;">${val} ${unit}</strong>
                 </div>
               </div>
             `
@@ -233,16 +292,16 @@ export const EChartPanel: FC<EChartPanelProps> = ({
           type: 'category',
           data: timestamps,
           boundaryGap: isBar,
-          axisLine: { lineStyle: { color: '#CDD4DC' } },
-          axisLabel: { color: '#69727D', fontSize: 11 },
+          axisLine: { lineStyle: { color: isDark ? '#334155' : '#CBD5E1' } },
+          axisLabel: { color: isDark ? '#94A3B8' : '#64748B', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
           axisTick: { show: false },
         },
         yAxis: {
           type: 'value',
           scale: true,
           axisLine: { show: false },
-          axisLabel: { color: '#69727D', fontSize: 11, formatter: `{value} ${unit}` },
-          splitLine: { lineStyle: { color: '#ECEEF1', type: 'dashed' } },
+          axisLabel: { color: isDark ? '#94A3B8' : '#64748B', fontSize: 11, fontFamily: 'JetBrains Mono, monospace', formatter: `{value} ${unit}` },
+          splitLine: { lineStyle: { color: isDark ? 'rgba(51, 65, 85, 0.45)' : '#E2E8F0', type: 'dashed' } },
         },
         dataZoom: [
           { type: 'inside', start: 0, end: 100 },
@@ -251,9 +310,10 @@ export const EChartPanel: FC<EChartPanelProps> = ({
             show: isPrimary || isExpanded,
             height: 16,
             bottom: 6,
-            borderColor: '#E2E6EA',
-            fillerColor: 'rgba(49, 95, 206, 0.1)',
-            handleStyle: { color: '#315FCE' },
+            borderColor: isDark ? '#334155' : '#CBD5E1',
+            fillerColor: isDark ? 'rgba(34, 211, 238, 0.15)' : 'rgba(15, 118, 110, 0.12)',
+            handleStyle: { color: isDark ? '#22D3EE' : '#0F766E', borderColor: isDark ? '#334155' : '#CBD5E1' },
+            textStyle: { color: isDark ? '#94A3B8' : '#64748B', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
           },
         ],
         series: [
@@ -301,6 +361,7 @@ export const EChartPanel: FC<EChartPanelProps> = ({
     thresholdCrit,
     isPrimary,
     isExpanded,
+    currentTheme,
   ])
 
   // Reset zoom

@@ -21,12 +21,22 @@ class MongoDBManager:
                 "CRITICAL TEST ISOLATION FAILURE: Direct MongoDB socket connection blocked in test environment! "
                 "Tests must use an isolated in-memory mock database."
             )
+        if getattr(settings, "ENVIRONMENT", "").lower() in ("production", "staging"):
+            uri_lower = (settings.MONGO_URI or "").lower()
+            if not settings.MONGO_URI or any(
+                lh in uri_lower for lh in ("://localhost", "://127.0.0.1", "://0.0.0.0")
+            ):
+                raise RuntimeError(
+                    f"CRITICAL CONFIGURATION ERROR: {settings.ENVIRONMENT.upper()} environment cannot fall back to local MongoDB! "
+                    "A valid authenticated remote MongoDB cluster (e.g. MongoDB Atlas) must be configured via MONGO_URI."
+                )
         try:
             import re
             sanitized_uri = re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", settings.MONGO_URI)
             logger.info("Initializing MongoDB connection to %s", sanitized_uri)
             cls.client = AsyncIOMotorClient(
                 settings.MONGO_URI,
+                tz_aware=True,
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=5000,
             )

@@ -73,9 +73,12 @@ export const RBACLoginModal: FC<RBACLoginModalProps> = ({
       if (response.ok) {
         const data = await response.json()
         const userObj: UserProfile = {
+          id: data.user.id,
           username: data.user.username,
           role: data.user.role,
           email: data.user.email,
+          assigned_sites: data.user.assigned_sites || [],
+          assigned_motors: data.user.assigned_motors || [],
           title: `${data.user.role} Clearance`,
           clearance_level:
             data.user.role === 'Admin'

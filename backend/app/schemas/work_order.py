@@ -42,12 +42,18 @@ class WorkOrderRejectRequest(BaseModel):
     rejection_reason: str = Field(..., min_length=3, description="Reason for rejection or reassignment")
 
 
+class WorkOrderReassignRequest(BaseModel):
+    assigned_to_user_id: str = Field(..., min_length=2, description="Technician username or user ID to reassign to")
+    notes: Optional[str] = Field(default=None, description="Optional notes explaining the reassignment")
+
+
 class WorkOrderOut(BaseModel):
     id: Optional[str] = None
     work_order_id: str
     motor_id: str
     site_id: Optional[str] = None
     alert_id: Optional[str] = None
+    assigned_to: Optional[str] = None
     assigned_to_user_id: str
     assigned_by_user_id: str
     priority: WorkOrderPriority
@@ -57,9 +63,12 @@ class WorkOrderOut(BaseModel):
     created_at: datetime
     assigned_at: Optional[datetime] = None
     accepted_at: Optional[datetime] = None
+    accepted_by: Optional[str] = None
     started_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
     rejected_at: Optional[datetime] = None
+    reassigned_from_user_id: Optional[str] = None
+    reassigned_at: Optional[datetime] = None
     diagnosis: Optional[str] = None
     actions_taken: Optional[str] = None
     parts_replaced: List[str] = Field(default_factory=list)

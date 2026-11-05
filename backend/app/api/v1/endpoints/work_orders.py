@@ -14,6 +14,7 @@ from backend.app.schemas.work_order import (
     WorkOrderStartRequest,
     WorkOrderResolveRequest,
     WorkOrderRejectRequest,
+    WorkOrderReassignRequest,
 )
 from backend.app.schemas.audit import AuditLogOut
 from backend.app.schemas.user import UserOut
@@ -47,19 +48,22 @@ async def create_work_order(
 async def list_work_orders(
     status: Optional[str] = Query(None, description="Filter by status (Assigned, Accepted, In Progress, Resolved, Rejected)"),
     motor_id: Optional[str] = Query(None, description="Filter by motor ID"),
+    assigned_to: Optional[str] = Query(None, description="Filter by assigned technician username or user ID"),
     limit: int = Query(100, ge=1, le=200),
     current_user: UserOut = Depends(require_roles("Admin", "Manager", "Technician")),
     service: WorkOrderService = Depends(get_work_order_service),
 ):
     """
-    List work orders.
-    - Technicians are isolated: only work orders assigned to their username are returned.
-    - Admins and Managers can inspect all work orders across the plant fleet.
+    List work orders with role-based isolation.
+    - Technicians are isolated: only work orders assigned to their authenticated identity are returned.
+    - Managers can inspect work orders for motors/sites within their authorized scope.
+    - Admins can view and filter all work orders across the plant fleet.
     """
     return await service.list_work_orders(
         current_user=current_user,
         status_filter=status,
         motor_id=motor_id,
+        assigned_to=assigned_to,
         limit=limit,
     )
 
@@ -95,21 +99,34 @@ async def get_work_order(
 async def accept_work_order(
     work_order_id: str,
     payload: WorkOrderAcceptRequest = WorkOrderAcceptRequest(),
-    current_user: UserOut = Depends(require_roles("Technician", "Admin")),
+    current_user: UserOut = Depends(require_roles("Technician", "Admin", "Manager")),
     service: WorkOrderService = Depends(get_work_order_service),
 ):
-    """Technician acknowledges & accepts assignment (Assigned -> Accepted)."""
+    """Acknowledge & accept assignment (Assigned -> Accepted). Technician, Admin, or scoped Manager."""
     return await service.accept_work_order(work_order_id, current_user, notes=payload.notes)
+
+
+@router.post("/{work_order_id}/reassign", response_model=WorkOrderOut)
+@router.put("/{work_order_id}/reassign", response_model=WorkOrderOut)
+@router.patch("/{work_order_id}/reassign", response_model=WorkOrderOut)
+async def reassign_work_order(
+    work_order_id: str,
+    payload: WorkOrderReassignRequest,
+    current_user: UserOut = Depends(require_roles("Admin", "Manager")),
+    service: WorkOrderService = Depends(get_work_order_service),
+):
+    """Reassign work order to another eligible technician (Requires Admin or authorized Manager)."""
+    return await service.reassign_work_order(work_order_id, payload, current_user)
 
 
 @router.post("/{work_order_id}/start", response_model=WorkOrderOut)
 async def start_work_order(
     work_order_id: str,
     payload: WorkOrderStartRequest = WorkOrderStartRequest(),
-    current_user: UserOut = Depends(require_roles("Technician", "Admin")),
+    current_user: UserOut = Depends(require_roles("Technician", "Admin", "Manager")),
     service: WorkOrderService = Depends(get_work_order_service),
 ):
-    """Technician begins maintenance intervention (Accepted -> In Progress)."""
+    """Begin maintenance intervention (Accepted -> In Progress)."""
     return await service.start_work_order(work_order_id, current_user, notes=payload.notes)
 
 
@@ -117,11 +134,11 @@ async def start_work_order(
 async def resolve_work_order(
     work_order_id: str,
     payload: WorkOrderResolveRequest,
-    current_user: UserOut = Depends(require_roles("Technician", "Admin")),
+    current_user: UserOut = Depends(require_roles("Technician", "Admin", "Manager")),
     service: WorkOrderService = Depends(get_work_order_service),
 ):
     """
-    Technician resolves work order: records root cause diagnosis, replaced parts,
+    Resolve work order: records root cause diagnosis, replaced parts,
     downtime minutes, and notes. Automatically resolves linked alert.
     """
     return await service.resolve_work_order(work_order_id, payload, current_user)
@@ -131,8 +148,8 @@ async def resolve_work_order(
 async def reject_work_order(
     work_order_id: str,
     payload: WorkOrderRejectRequest,
-    current_user: UserOut = Depends(require_roles("Technician", "Admin")),
+    current_user: UserOut = Depends(require_roles("Technician", "Admin", "Manager")),
     service: WorkOrderService = Depends(get_work_order_service),
 ):
-    """Technician rejects assignment with detailed reason."""
+    """Reject work order assignment with detailed reason."""
     return await service.reject_work_order(work_order_id, payload, current_user)

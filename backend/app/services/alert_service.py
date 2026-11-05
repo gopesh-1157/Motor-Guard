@@ -307,7 +307,7 @@ class AlertService:
 
         # 0b. Inference Failure Diagnostics (without fabricating synthetic ML classes)
         inf_status = inference.get("status")
-        if inf_status in ("MODEL_ERROR", "ERROR", "UNAVAILABLE") or inference.get("model_error"):
+        if inf_status in ("MODEL_ERROR", "ERROR", "UNAVAILABLE", "MODEL_UNAVAILABLE", "INPUT_INVALID") or inference.get("model_error"):
             alert = await self._trigger_or_update_alert(
                 motor_id=motor_id,
                 device_id=device_id,
@@ -324,7 +324,18 @@ class AlertService:
             )
             if alert:
                 created_alerts.append(alert)
-        elif inf_status == "OK" or (inference and "health_status" in inference and inf_status != "MODEL_ERROR"):
+            # When inference is unavailable or failed, auto-resolve ML fault alerts (do not invent a motor fault)
+            await self._auto_resolve_if_active(
+                motor_id=motor_id,
+                trigger_type="CRITICAL_INFERENCE_FAULT",
+                notes=f"Auto-resolved due to inference diagnostic state: {inf_status or 'MODEL_ERROR'}",
+            )
+            await self._auto_resolve_if_active(
+                motor_id=motor_id,
+                trigger_type="WARNING_INFERENCE_ANOMALY",
+                notes=f"Auto-resolved due to inference diagnostic state: {inf_status or 'MODEL_ERROR'}",
+            )
+        elif inf_status == "OK" or (inference and "health_status" in inference and inf_status not in ("MODEL_ERROR", "ERROR", "MODEL_UNAVAILABLE", "INPUT_INVALID")):
             await self._auto_resolve_if_active(
                 motor_id=motor_id,
                 trigger_type="INFERENCE_DIAGNOSTIC_FAILURE",
@@ -477,53 +488,22 @@ class AlertService:
             )
 
         # 5. Edge Impulse TinyML Inference Evaluation (Strictly 3 labels: healthy, warning, critical)
-        # Note: A healthy ML prediction NEVER suppresses deterministic physical thresholds evaluated above.
+        # Primary Motor Health Alert Decision Pipeline
         health_status = inference.get("health_status")
         confidence = float(inference.get("confidence", 0.0) or 0.0)
+        inf_status = inference.get("status")
 
-        if health_status == "critical":
-            alert = await self._trigger_or_update_alert(
-                motor_id=motor_id,
-                device_id=device_id,
-                severity="CRITICAL",
-                trigger_type="CRITICAL_INFERENCE_FAULT",
-                trigger_value=confidence,
-                threshold_limit=0.5,
-                unit="confidence",
-                message=f"Edge TinyML model diagnosed CRITICAL motor health for {motor_id} (confidence: {confidence:.1%})",
-                site_id=site_id,
-                category="ML_INFERENCE",
-                configuration_snapshot=config_snapshot,
-                source="edge_tinyml_classifier",
-            )
-            if alert:
-                created_alerts.append(alert)
-            await self._auto_resolve_if_active(
-                motor_id=motor_id,
-                trigger_type="WARNING_INFERENCE_ANOMALY",
-                notes=f"Escalated from WARNING to CRITICAL (confidence: {confidence:.1%})",
-            )
-        elif health_status == "warning":
-            has_physical_alert = any(
-                a.trigger_type in (
-                    "THRESHOLD_OVERCURRENT",
-                    "THRESHOLD_OVERTEMPERATURE",
-                    "THRESHOLD_HIGH_VIBRATION_RMS",
-                    "THRESHOLD_HIGH_VIBRATION_PEAK",
-                    "HARD_OVERCURRENT_TRIP",
-                )
-                for a in created_alerts
-            )
-            if not has_physical_alert:
+        if inf_status == "PREDICTED" or (inf_status is None and health_status in ("healthy", "warning", "critical")):
+            if health_status == "critical":
                 alert = await self._trigger_or_update_alert(
                     motor_id=motor_id,
                     device_id=device_id,
-                    severity="WARNING",
-                    trigger_type="WARNING_INFERENCE_ANOMALY",
+                    severity="CRITICAL",
+                    trigger_type="CRITICAL_INFERENCE_FAULT",
                     trigger_value=confidence,
                     threshold_limit=0.5,
                     unit="confidence",
-                    message=f"Edge TinyML model diagnosed WARNING motor anomaly for {motor_id} (confidence: {confidence:.1%})",
+                    message=f"Edge TinyML model diagnosed CRITICAL motor health for {motor_id} (confidence: {confidence:.1%})",
                     site_id=site_id,
                     category="ML_INFERENCE",
                     configuration_snapshot=config_snapshot,
@@ -531,22 +511,55 @@ class AlertService:
                 )
                 if alert:
                     created_alerts.append(alert)
-            await self._auto_resolve_if_active(
-                motor_id=motor_id,
-                trigger_type="CRITICAL_INFERENCE_FAULT",
-                notes=f"De-escalated to WARNING (confidence: {confidence:.1%})",
-            )
-        elif health_status == "healthy":
-            await self._auto_resolve_if_active(
-                motor_id=motor_id,
-                trigger_type="CRITICAL_INFERENCE_FAULT",
-                notes=f"Edge TinyML model status normalized to healthy (confidence: {confidence:.1%})",
-            )
-            await self._auto_resolve_if_active(
-                motor_id=motor_id,
-                trigger_type="WARNING_INFERENCE_ANOMALY",
-                notes=f"Edge TinyML model status normalized to healthy (confidence: {confidence:.1%})",
-            )
+                await self._auto_resolve_if_active(
+                    motor_id=motor_id,
+                    trigger_type="WARNING_INFERENCE_ANOMALY",
+                    notes=f"Escalated from WARNING to CRITICAL (confidence: {confidence:.1%})",
+                )
+            elif health_status == "warning":
+                has_physical_alert = any(
+                    a.trigger_type in (
+                        "THRESHOLD_OVERCURRENT",
+                        "THRESHOLD_OVERTEMPERATURE",
+                        "THRESHOLD_HIGH_VIBRATION_RMS",
+                        "THRESHOLD_HIGH_VIBRATION_PEAK",
+                        "HARD_OVERCURRENT_TRIP",
+                    )
+                    for a in created_alerts
+                )
+                if not has_physical_alert:
+                    alert = await self._trigger_or_update_alert(
+                        motor_id=motor_id,
+                        device_id=device_id,
+                        severity="WARNING",
+                        trigger_type="WARNING_INFERENCE_ANOMALY",
+                        trigger_value=confidence,
+                        threshold_limit=0.5,
+                        unit="confidence",
+                        message=f"Edge TinyML model diagnosed WARNING motor anomaly for {motor_id} (confidence: {confidence:.1%})",
+                        site_id=site_id,
+                        category="ML_INFERENCE",
+                        configuration_snapshot=config_snapshot,
+                        source="edge_tinyml_classifier",
+                    )
+                    if alert:
+                        created_alerts.append(alert)
+                await self._auto_resolve_if_active(
+                    motor_id=motor_id,
+                    trigger_type="CRITICAL_INFERENCE_FAULT",
+                    notes=f"De-escalated to WARNING (confidence: {confidence:.1%})",
+                )
+            elif health_status == "healthy":
+                await self._auto_resolve_if_active(
+                    motor_id=motor_id,
+                    trigger_type="CRITICAL_INFERENCE_FAULT",
+                    notes=f"Edge TinyML model status normalized to healthy (confidence: {confidence:.1%})",
+                )
+                await self._auto_resolve_if_active(
+                    motor_id=motor_id,
+                    trigger_type="WARNING_INFERENCE_ANOMALY",
+                    notes=f"Edge TinyML model status normalized to healthy (confidence: {confidence:.1%})",
+                )
 
         return created_alerts
 
@@ -786,9 +799,12 @@ class AlertService:
         if current_user.role == "Technician":
             permitted = set(current_user.assigned_motors or [])
             if self.work_orders_collection is not None and self.work_orders_collection is not self.collection:
+                tech_or = [{"assigned_to_user_id": current_user.username}]
+                if current_user.id:
+                    tech_or.append({"assigned_to": current_user.id})
                 cursor = self.work_orders_collection.find(
                     {
-                        "assigned_to_user_id": current_user.username,
+                        "$or": tech_or,
                         "state": {"$nin": ["COMPLETED", "CANCELLED"]},
                     },
                     {"motor_id": 1},
@@ -841,9 +857,12 @@ class AlertService:
             if motor_id and motor_id in (current_user.assigned_motors or []):
                 return True
             if motor_id and self.work_orders_collection is not None and self.work_orders_collection is not self.collection:
+                tech_or = [{"assigned_to_user_id": current_user.username}]
+                if current_user.id:
+                    tech_or.append({"assigned_to": current_user.id})
                 active_wo = await self.work_orders_collection.find_one({
                     "motor_id": motor_id,
-                    "assigned_to_user_id": current_user.username,
+                    "$or": tech_or,
                     "state": {"$nin": ["COMPLETED", "CANCELLED"]},
                 })
                 if active_wo:

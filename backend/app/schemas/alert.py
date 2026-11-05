@@ -2,9 +2,9 @@
 MotorGuard — Alert Schemas & Models
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 AlertSeverity = Literal["INFO", "WARNING", "CRITICAL"]
 AlertState = Literal["ACTIVE", "ACKNOWLEDGED", "RESOLVED"]
@@ -61,6 +61,21 @@ class AlertBase(BaseModel):
     last_observed_at: Optional[datetime] = None
     source: Optional[str] = None
 
+    @field_validator("last_observed_at", mode="before")
+    @classmethod
+    def ensure_utc_base(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
+        if isinstance(v, str):
+            try:
+                dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+        return v
+
     def model_post_init(self, __context) -> None:
         if self.category is None:
             self.category = TRIGGER_TYPE_TO_CATEGORY.get(self.trigger_type, "SAFETY_THRESHOLD")
@@ -112,3 +127,26 @@ class AlertOut(AlertBase):
     reopened_at: Optional[datetime] = None
     reopened_by: Optional[str] = None
     reopen_reason: Optional[str] = None
+
+    @field_validator(
+        "triggered_at",
+        "acknowledged_at",
+        "assigned_at",
+        "resolved_at",
+        "reopened_at",
+        mode="before",
+        check_fields=False,
+    )
+    @classmethod
+    def ensure_utc_out(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
+        if isinstance(v, str):
+            try:
+                dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+        return v

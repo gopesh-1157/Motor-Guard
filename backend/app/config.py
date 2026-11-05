@@ -1,6 +1,6 @@
 import os
 from typing import List, Optional
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator, AliasChoices
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -24,7 +24,11 @@ class Settings(BaseSettings):
     )
 
     # --- Local MongoDB Storage ---
-    MONGO_URI: str = Field(default="mongodb://127.0.0.1:27017", description="MongoDB URI")
+    MONGO_URI: str = Field(
+        default="mongodb://127.0.0.1:27017",
+        validation_alias=AliasChoices("MONGO_URI", "MONGO_URL"),
+        description="MongoDB URI",
+    )
     MONGO_DB_NAME: str = Field(default="motorguard_db", description="Database name")
     TELEMETRY_RETENTION_DAYS: int = Field(default=90, description="Retention horizon in days")
 

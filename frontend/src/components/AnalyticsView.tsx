@@ -1,6 +1,6 @@
 import type { FC } from 'react'
-import { useState, useMemo } from 'react'
-import { Download, Table, AlertTriangle } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { Download, Table, AlertTriangle, RefreshCw } from 'lucide-react'
 import type { MotorState, ChartMetric, TimeRangeOption, AlertItem } from '../types'
 import { MetricSummaryCard } from './MetricSummaryCard'
 import { EChartPanel } from './EChartPanel'
@@ -29,8 +29,78 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
   const [timeRange, setTimeRange] = useState<TimeRangeOption>('1h')
   const [tableSearch, setTableSearch] = useState('')
 
-  const history = useMemo(() => currentMotor?.history || [], [currentMotor])
   const motor_id = currentMotor?.latest.motor_id || ''
+
+  // Historical backend telemetry state
+  const [historicalRecords, setHistoricalRecords] = useState<any[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+
+  // Fetch backend historical records when motor or timeRange changes
+  useEffect(() => {
+    if (!motor_id) return
+    let isSubscribed = true
+    setLoadingHistory(true)
+
+    const token = localStorage.getItem('motorguard_auth_token')
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    // Calculate start time based on timeRange
+    let startTimeIso: string | undefined
+    const now = new Date()
+    if (timeRange === '15m') startTimeIso = new Date(now.getTime() - 15 * 60 * 1000).toISOString()
+    else if (timeRange === '1h') startTimeIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString()
+    else if (timeRange === '6h') startTimeIso = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString()
+    else if (timeRange === '24h') startTimeIso = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+    else if (timeRange === '7d') startTimeIso = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+    const queryUrl = startTimeIso
+      ? `/api/v1/telemetry/historical?motor_id=${encodeURIComponent(motor_id)}&start_time=${encodeURIComponent(startTimeIso)}&limit=1000`
+      : `/api/v1/telemetry/historical?motor_id=${encodeURIComponent(motor_id)}&limit=1000`
+
+    fetch(queryUrl, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isSubscribed) return
+        if (data && Array.isArray(data.telemetry)) {
+          setHistoricalRecords(data.telemetry)
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isSubscribed) setLoadingHistory(false)
+      })
+
+    return () => {
+      isSubscribed = false
+    }
+  }, [motor_id, timeRange])
+
+  // Merge live telemetry buffer and historical records seamlessly
+  const history = useMemo(() => {
+    const liveHistory = currentMotor?.history || []
+    if (historicalRecords.length === 0) return liveHistory
+
+    const formattedHistorical = historicalRecords.map((r) => ({
+      timestamp: r.timestamp,
+      current: r.sensors?.current_a ?? null,
+      temperature: r.sensors?.temperature_c ?? null,
+      vibration: r.sensors?.vibration_g ?? null,
+      health_status: r.inference?.health_status || 'unknown',
+    }))
+
+    const map = new Map<string, any>()
+    for (const item of formattedHistorical) {
+      if (item.timestamp) map.set(item.timestamp, item)
+    }
+    for (const item of liveHistory) {
+      if (item.timestamp) map.set(item.timestamp, item)
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    )
+  }, [currentMotor?.history, historicalRecords])
 
   // Prepare chart series from motor history
   const tempSeries = useMemo(() => {
@@ -93,8 +163,27 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
   const effectiveWarnVib = currentMotor.effective_thresholds?.vibration_warning_g ?? currentMotor.thresholds?.vibration_warning_g ?? 0.20
   const effectiveCritVib = currentMotor.effective_thresholds?.vibration_critical_g ?? currentMotor.thresholds?.vibration_critical_g ?? 0.80
 
-  // Full dataset export handler
-  const handleExportFullCSV = () => {
+  // Full dataset export handler (server-side stream with client fallback)
+  const handleExportFullCSV = async () => {
+    const token = localStorage.getItem('motorguard_auth_token')
+    if (token) {
+      try {
+        const res = await fetch(`/api/v1/telemetry/export?motor_id=${encodeURIComponent(motor_id)}&export_format=csv`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const blob = await res.blob()
+          const url = window.URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = url
+          link.download = `MotorGuard_${motor_id}_Complete_Telemetry_${new Date().toISOString().split('T')[0]}.csv`
+          link.click()
+          window.URL.revokeObjectURL(url)
+          return
+        }
+      } catch {}
+    }
+
     const headers = ['Timestamp_ISO', 'Motor_ID', 'Device_ID', 'Source', 'Temp_C', 'Current_A', 'Vibration_g_RMS', 'Health_Status']
     const rows = history.map((h) => [
       `"${h.timestamp}"`,
@@ -115,6 +204,7 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
     link.download = `MotorGuard_${motor_id}_Complete_Telemetry_${dateStr}.csv`
     link.click()
   }
+
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -190,6 +280,12 @@ export const AnalyticsView: FC<AnalyticsViewProps> = ({
               </button>
             ))}
           </div>
+
+          {loadingHistory && (
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <RefreshCw size={12} className="spin" /> Querying History...
+            </span>
+          )}
 
           <button className="btn-secondary" onClick={handleExportFullCSV}>
             <Download size={14} />

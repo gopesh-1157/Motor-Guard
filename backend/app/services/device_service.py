@@ -133,7 +133,10 @@ class DeviceService:
             elif current_user.role == "Technician":
                 tech_motors = set(current_user.assigned_motors or [])
                 if self.db is not None:
-                    cursor_wo = self.db["work_orders"].find({"assigned_to_user_id": current_user.username})
+                    tech_clauses = [{"assigned_to_user_id": current_user.username}]
+                    if current_user.id:
+                        tech_clauses.append({"assigned_to": current_user.id})
+                    cursor_wo = self.db["work_orders"].find({"$or": tech_clauses})
                     async for wo in cursor_wo:
                         if "motor_id" in wo:
                             tech_motors.add(wo["motor_id"])
@@ -161,7 +164,10 @@ class DeviceService:
             elif current_user.role == "Technician":
                 tech_motors = set(current_user.assigned_motors or [])
                 if self.db is not None:
-                    cursor_wo = self.db["work_orders"].find({"assigned_to_user_id": current_user.username})
+                    tech_clauses = [{"assigned_to_user_id": current_user.username}]
+                    if current_user.id:
+                        tech_clauses.append({"assigned_to": current_user.id})
+                    cursor_wo = self.db["work_orders"].find({"$or": tech_clauses})
                     async for wo in cursor_wo:
                         if "motor_id" in wo:
                             tech_motors.add(wo["motor_id"])
@@ -265,10 +271,15 @@ class DeviceService:
         Returns False if the device is unknown, not enrolled, or assigned to a different motor in the registry.
         If update_liveness is True, updates last_seen and availability.
         """
+        # Check exact match first, then case-insensitive fallback to prevent casing discrepancy from false quarantine
         device = await self.collection.find_one({"device_id": device_id})
+        if not device:
+            import re
+            device = await self.collection.find_one({"device_id": {"$regex": f"^{re.escape(device_id)}$", "$options": "i"}})
         now = datetime.now(timezone.utc)
 
         if device:
+            canonical_device_id = device.get("device_id", device_id)
             # Check enrollment status: must be active/enrolled, not pending or quarantined
             if device.get("enrollment_status") not in ["enrolled", "active"]:
                 logger.warning(
@@ -288,7 +299,7 @@ class DeviceService:
 
             if update_liveness:
                 await self.collection.update_one(
-                    {"device_id": device_id},
+                    {"device_id": canonical_device_id},
                     {"$set": {"last_seen": now, "availability": "online", "updated_at": now}},
                 )
             return True
@@ -331,7 +342,10 @@ class DeviceService:
             elif current_user.role == "Technician":
                 tech_motors = set(current_user.assigned_motors or [])
                 if self.db is not None:
-                    cursor_wo = self.db["work_orders"].find({"assigned_to_user_id": current_user.username})
+                    tech_clauses = [{"assigned_to_user_id": current_user.username}]
+                    if current_user.id:
+                        tech_clauses.append({"assigned_to": current_user.id})
+                    cursor_wo = self.db["work_orders"].find({"$or": tech_clauses})
                     async for wo in cursor_wo:
                         if "motor_id" in wo:
                             tech_motors.add(wo["motor_id"])

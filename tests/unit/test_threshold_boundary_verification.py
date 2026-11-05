@@ -99,12 +99,12 @@ class TestCurrentBoundaries:
     @pytest.mark.parametrize(
         "current_val, expected_health, expected_alert_severity",
         [
-            (3.390, "healthy", None),       # Just below warning
-            (3.400, "warning", "WARNING"),   # Exactly at warning
-            (3.410, "warning", "WARNING"),   # Just above warning
-            (3.990, "warning", "WARNING"),   # Just below critical
-            (4.000, "critical", "CRITICAL"), # Exactly at critical
-            (4.010, "critical", "CRITICAL"), # Just above critical
+            (3.390, "healthy", None),        # Just below warning
+            (3.400, "healthy", "WARNING"),   # Exactly at warning (safety alert triggered; ML health unchanged)
+            (3.410, "healthy", "WARNING"),   # Just above warning
+            (3.990, "healthy", "WARNING"),   # Just below critical
+            (4.000, "healthy", "CRITICAL"),  # Exactly at critical (safety alert triggered; ML health unchanged)
+            (4.010, "healthy", "CRITICAL"),  # Just above critical
         ],
     )
     @pytest.mark.asyncio
@@ -158,11 +158,11 @@ class TestTemperatureBoundaries:
         "temp_val, expected_health, expected_alert_severity",
         [
             (49.9, "healthy", None),        # Just below warning
-            (50.0, "warning", "WARNING"),    # Exactly at warning
-            (50.1, "warning", "WARNING"),    # Just above warning
-            (69.9, "warning", "WARNING"),    # Just below critical
-            (70.0, "critical", "CRITICAL"),  # Exactly at critical
-            (70.1, "critical", "CRITICAL"),  # Just above critical
+            (50.0, "healthy", "WARNING"),    # Exactly at warning (safety alert triggered; ML health unchanged)
+            (50.1, "healthy", "WARNING"),    # Just above warning
+            (69.9, "healthy", "WARNING"),    # Just below critical
+            (70.0, "healthy", "CRITICAL"),  # Exactly at critical (safety alert triggered; ML health unchanged)
+            (70.1, "healthy", "CRITICAL"),  # Just above critical
         ],
     )
     @pytest.mark.asyncio
@@ -216,11 +216,11 @@ class TestVibrationRMSBoundaries:
         "vib_val, expected_health, expected_alert_severity",
         [
             (0.099, "healthy", None),        # Just below warning
-            (0.100, "warning", "WARNING"),    # Exactly at warning
-            (0.101, "warning", "WARNING"),    # Just above warning
-            (0.399, "warning", "WARNING"),    # Just below critical
-            (0.400, "critical", "CRITICAL"),  # Exactly at critical
-            (0.401, "critical", "CRITICAL"),  # Just above critical
+            (0.100, "healthy", "WARNING"),    # Exactly at warning (safety alert triggered; ML health unchanged)
+            (0.101, "healthy", "WARNING"),    # Just above warning
+            (0.399, "healthy", "WARNING"),    # Just below critical
+            (0.400, "healthy", "CRITICAL"),  # Exactly at critical (safety alert triggered; ML health unchanged)
+            (0.401, "healthy", "CRITICAL"),  # Just above critical
         ],
     )
     @pytest.mark.asyncio
@@ -274,11 +274,11 @@ class TestPeakShockBoundaries:
         "peak_val, expected_health, expected_alert_severity",
         [
             (0.349, "healthy", None),        # Just below warning
-            (0.350, "warning", "WARNING"),    # Exactly at warning
-            (0.351, "warning", "WARNING"),    # Just above warning
-            (0.799, "warning", "WARNING"),    # Just below critical
-            (0.800, "critical", "CRITICAL"),  # Exactly at critical
-            (0.801, "critical", "CRITICAL"),  # Just above critical
+            (0.350, "healthy", "WARNING"),    # Exactly at warning (safety alert triggered; ML health unchanged)
+            (0.351, "healthy", "WARNING"),    # Just above warning
+            (0.799, "healthy", "WARNING"),    # Just below critical
+            (0.800, "healthy", "CRITICAL"),  # Exactly at critical (safety alert triggered; ML health unchanged)
+            (0.801, "healthy", "CRITICAL"),  # Just above critical
         ],
     )
     @pytest.mark.asyncio
@@ -321,3 +321,48 @@ class TestPeakShockBoundaries:
         telem_recovery = _fresh_telemetry(dict(NOMINAL_SENSORS, vibration_g_peak=0.290))
         await alert_svc.evaluate_telemetry_for_alerts(telem_recovery)
         assert was_auto_resolved(mock_db, "THRESHOLD_HIGH_VIBRATION_PEAK")
+
+
+# ==============================================================================
+# 5. Edge ML Health Primacy & Diagnostic Separation
+# ==============================================================================
+
+class TestEdgeMLHealthPrimacy:
+    @pytest.mark.parametrize(
+        "ml_label, expected_health",
+        [
+            ("healthy", "healthy"),
+            ("warning", "warning"),
+            ("critical", "critical"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_ml_classification_determines_health(self, mock_db_and_services, ml_label, expected_health):
+        """Verifies that the deployed Edge ML output label authoritatively determines health."""
+        _, _, motor_svc = mock_db_and_services
+        telem = _fresh_telemetry(NOMINAL_SENSORS)
+        telem["inference"] = {"status": "PREDICTED", "health_status": ml_label, "confidence": 0.95}
+
+        health = await motor_svc.calculate_motor_health(
+            motor_id="MTR-775-001",
+            motor_doc={"motor_id": "MTR-775-001"},
+            last_telem=telem,
+            effective_thresholds=TEST_THRESHOLDS,
+        )
+        assert health == expected_health
+
+    @pytest.mark.asyncio
+    async def test_inference_failure_yields_unknown_never_fake_fault(self, mock_db_and_services):
+        """Inference error or failure reports unknown, never falling back to thresholds or faking fault."""
+        _, _, motor_svc = mock_db_and_services
+        telem = _fresh_telemetry(dict(NOMINAL_SENSORS, current_a=3.8))  # High current
+        telem["inference"] = {"status": "MODEL_ERROR", "health_status": None, "model_error": True}
+
+        health = await motor_svc.calculate_motor_health(
+            motor_id="MTR-775-001",
+            motor_doc={"motor_id": "MTR-775-001"},
+            last_telem=telem,
+            effective_thresholds=TEST_THRESHOLDS,
+        )
+        assert health == "unknown"
+

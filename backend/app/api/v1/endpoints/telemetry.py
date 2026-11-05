@@ -66,7 +66,11 @@ async def ingest_telemetry_event(
 ):
     """Direct HTTP ingestion endpoint for ESP32 AP mode or HTTP bridges."""
     from backend.app.main import _ingest_and_broadcast
-    inserted = await _ingest_and_broadcast(message.model_dump())
+    from datetime import datetime, timezone
+    payload = message.model_dump()
+    if isinstance(payload.get("timestamp"), str) and payload["timestamp"].startswith("1970"):
+        payload["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    inserted = await _ingest_and_broadcast(payload)
     return {"success": inserted, "event_id": message.event_id}
 
 

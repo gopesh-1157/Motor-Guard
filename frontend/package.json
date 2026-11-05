@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@splinetool/runtime": "^2.0.106",
     "animejs": "^4.5.0",
     "echarts": "^6.1.0",
     "lucide-react": "^1.55.0",

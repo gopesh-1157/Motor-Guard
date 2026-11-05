@@ -36,8 +36,10 @@ class WebSocketManager:
         user: Optional[Any] = None,
     ) -> None:
         await websocket.accept(subprotocol=subprotocol)
+        user_id = str(getattr(user, "id", None) or getattr(user, "_id", "")) if user else None
         metadata = {
             "user": user,
+            "id": user_id,
             "username": getattr(user, "username", "anonymous") if user else "anonymous",
             "role": getattr(user, "role", "Operator") if user else "Operator",
             "assigned_sites": set(getattr(user, "assigned_sites", []) or []),
@@ -104,9 +106,15 @@ class WebSocketManager:
             return True
 
         if role == "Technician":
-            # Technician receives alerts assigned directly to them
-            if payload.get("assigned_to") == metadata.get("username"):
-                return True
+            # Technician receives alerts or work orders assigned directly to their authenticated account
+            uname = metadata.get("username")
+            uid = metadata.get("id")
+            if uname:
+                if payload.get("assigned_to") == uname or payload.get("assigned_to_user_id") == uname:
+                    return True
+            if uid:
+                if payload.get("assigned_to") == uid or payload.get("assigned_to_user_id") == uid:
+                    return True
             # Or events for their explicitly authorized motors
             if assigned_motors and motor_id and motor_id in assigned_motors:
                 return True

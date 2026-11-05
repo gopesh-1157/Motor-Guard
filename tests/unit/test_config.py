@@ -227,4 +227,35 @@ async def test_admin_seeding_development_fallback_preserved():
             assert doc["role"] == "Admin"
 
 
+def test_mongo_url_alias_binding():
+    """Verify Settings binds MONGO_URL transparently to MONGO_URI via AliasChoices."""
+    s = Settings(ENVIRONMENT="development", MONGO_URL="mongodb+srv://user:pass@cluster0.mongodb.net/testdb")
+    assert s.MONGO_URI == "mongodb+srv://user:pass@cluster0.mongodb.net/testdb"
+
+
+def test_default_local_mongo_configuration():
+    """Verify default local configuration targets localhost and motorguard_db."""
+    s = Settings(ENVIRONMENT="development")
+    assert "localhost" in s.MONGO_URI or "127.0.0.1" in s.MONGO_URI
+    assert s.MONGO_DB_NAME == "motorguard_db"
+
+
+@pytest.mark.asyncio
+async def test_production_and_staging_block_local_mongo_fallback():
+    """Verify MongoDBManager fails fast if production or staging tries to fall back to localhost."""
+    from backend.app.db.mongodb import MongoDBManager
+    from unittest.mock import patch
+
+    connect_fn = getattr(MongoDBManager, "_unpatched_connect", MongoDBManager.connect_to_database)
+
+    for env in ("production", "staging"):
+        with patch("backend.app.db.mongodb.settings.ENVIRONMENT", env), \
+             patch("backend.app.db.mongodb.settings.MONGO_URI", "mongodb://localhost:27017"):
+            with pytest.raises(RuntimeError) as exc_info:
+                await connect_fn()
+            assert "cannot fall back to local MongoDB" in str(exc_info.value)
+
+
+
+
 

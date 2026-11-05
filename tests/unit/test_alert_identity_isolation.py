@@ -61,3 +61,28 @@ def test_freshness_uses_server_receipt_time_only() -> None:
     assert MotorService._telemetry_freshness({"server_received_at": now}, thresholds) == "fresh"
     assert MotorService._telemetry_freshness({"server_received_at": now.replace(year=2020)}, thresholds) == "offline"
     assert MotorService._telemetry_freshness({"timestamp": now.isoformat()}, thresholds) == "unknown"
+
+
+def test_alert_out_naive_datetime_normalized_to_utc() -> None:
+    from backend.app.schemas.alert import AlertOut
+
+    naive_dt = datetime(2026, 11, 2, 14, 30, 0)  # Naive datetime as returned by default PyMongo
+    alert = AlertOut(
+        alert_id="ALT-20261102-TEST01",
+        motor_id="MTR-775-001",
+        device_id="esp32-node-001",
+        severity="WARNING",
+        trigger_type="THRESHOLD_OVERTEMPERATURE",
+        trigger_value=55.0,
+        threshold_limit=50.0,
+        unit="°C",
+        message="Thermal warning",
+        state="ACTIVE",
+        triggered_at=naive_dt,
+        last_observed_at=naive_dt,
+    )
+    assert alert.triggered_at.tzinfo == timezone.utc
+    assert alert.last_observed_at.tzinfo == timezone.utc
+    serialized = alert.model_dump_json()
+    assert "2026-11-02T14:30:00Z" in serialized
+

@@ -186,19 +186,27 @@ class VirtualMotor:
         current_peak = round(curr * random.uniform(1.05, 1.25), 2)
         vib_peak = round(vib * random.uniform(1.4, 2.2), 3)
 
-        # 3. Determine Edge Impulse TinyML health prediction (pure ML classification)
-        if (curr > 4.0) or (vib > 0.8) or (temp is not None and temp > 75.0):
+        # 3. Simulate Edge Impulse TinyML health prediction (pure ML classification matching deployed model)
+        if temp is None or curr is None or vib is None:
+            inference_status = "INPUT_INVALID"
+            health = "unknown"
+            conf = 0.0
+            probs = None
+        elif self.profile == "critical_vib":
+            inference_status = "PREDICTED"
             health = "critical"
-            probs = {"healthy": 0.02, "warning": 0.08, "critical": 0.90}
-            conf = 0.90
-        elif (curr > 3.0) or (vib > 0.2) or (temp is not None and temp > 50.0):
+            probs = {"healthy": 0.02, "warning": 0.06, "critical": 0.92}
+            conf = 0.92
+        elif self.profile == "warning_temp":
+            inference_status = "PREDICTED"
             health = "warning"
-            probs = {"healthy": 0.10, "warning": 0.85, "critical": 0.05}
-            conf = 0.85
+            probs = {"healthy": 0.07, "warning": 0.88, "critical": 0.05}
+            conf = 0.88
         else:
+            inference_status = "PREDICTED"
             health = "healthy"
-            probs = {"healthy": 0.96, "warning": 0.03, "critical": 0.01}
-            conf = 0.96
+            probs = {"healthy": 0.94, "warning": 0.04, "critical": 0.02}
+            conf = 0.94
 
         # 4. Independent Deterministic Safety Evaluation (Never suppressed by ML)
         safety_reasons = []
@@ -266,11 +274,11 @@ class VirtualMotor:
                 "current_zero_offset_v": 2.501,
             },
             "inference": {
-                "status": "PREDICTED",
+                "status": inference_status,
                 "health_status": health,
                 "confidence": conf,
                 "probabilities": probs,
-                "model_version": "ei-motoguard-v1.0.1",
+                "model_version": "ei-motoguard-v1.0.1-simulated",
                 "input_feature_version": "1.0.0-3f",
                 "inference_time_ms": random.randint(3, 8),
             },

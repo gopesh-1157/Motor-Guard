@@ -39,9 +39,9 @@ export const Motor3DViewer: FC<Motor3DViewerProps> = ({
     const width = container.clientWidth || 320
     const height = container.clientHeight || 240
 
-    // Scene setup
+    // Scene setup with transparent background to blend seamlessly with theme card
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0xF9FAFB) // Light clean background matching theme
+    scene.background = null
 
     const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100)
     camera.position.set(5.5, 3.8, 6.5)

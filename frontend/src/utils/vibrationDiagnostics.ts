@@ -22,9 +22,9 @@ export function computeVibrationDiagnostics(motor: MotorState): FFTSpectrumData 
   const bsfHz = Number((runningFreqHz * 1.98).toFixed(2))  // Ball Spin
   const ftfHz = Number((runningFreqHz * 0.38).toFixed(2))  // Cage/Train
 
-  // Frequency range: 0 to 400 Hz (at 800 Hz ODR, Nyquist is 400 Hz)
-  const stepHz = 1.0
-  const maxHz = 400
+  // Frequency range: 0 to maxHz (dynamically sized up to 1000 Hz if high-speed motor)
+  const maxHz = runningFreqHz > 100 ? 1000 : 400
+  const stepHz = maxHz > 500 ? 2.0 : 1.0
   const frequencies: number[] = []
   const amplitudes_g: number[] = []
   const amplitudes_mms: number[] = []
@@ -43,46 +43,48 @@ export function computeVibrationDiagnostics(motor: MotorState): FFTSpectrumData 
 
     // 1x Running Speed Fundamental Peak (Unbalance)
     const d1x = Math.abs(f - runningFreqHz)
-    if (d1x < 2.5) {
-      const peakAmp = currentVibG * 0.55 * Math.exp(-Math.pow(d1x / 1.0, 2))
+    if (d1x < 3.5) {
+      const peakAmp = currentVibG * 0.55 * Math.exp(-Math.pow(d1x / 1.2, 2))
       ampG += peakAmp
     }
 
     // 2x Harmonic Peak (Misalignment / Angular Shaft Deflection)
     const d2x = Math.abs(f - runningFreqHz * 2)
-    if (d2x < 2.5) {
+    if (d2x < 3.5) {
       const mult = healthStatus === 'critical' ? 0.45 : healthStatus === 'warning' ? 0.35 : 0.12
-      const peakAmp = currentVibG * mult * Math.exp(-Math.pow(d2x / 1.0, 2))
+      const peakAmp = currentVibG * mult * Math.exp(-Math.pow(d2x / 1.2, 2))
       ampG += peakAmp
     }
 
     // 3x Harmonic Peak (Looseness / Casing Resonance)
     const d3x = Math.abs(f - runningFreqHz * 3)
-    if (d3x < 2.5) {
+    if (d3x < 4.0) {
       const mult = healthStatus === 'critical' ? 0.28 : healthStatus === 'warning' ? 0.18 : 0.05
-      const peakAmp = currentVibG * mult * Math.exp(-Math.pow(d3x / 1.0, 2))
+      const peakAmp = currentVibG * mult * Math.exp(-Math.pow(d3x / 1.5, 2))
       ampG += peakAmp
     }
 
     // Bearing Outer Race Defect (BPFO) Peak & Sidebands
     const dBPFO = Math.abs(f - bpfoHz)
-    if (dBPFO < 2.5) {
+    if (dBPFO < 4.0) {
       const mult = healthStatus === 'critical' ? 0.65 : healthStatus === 'warning' ? 0.30 : 0.04
-      const peakAmp = currentVibG * mult * Math.exp(-Math.pow(dBPFO / 1.2, 2))
+      const peakAmp = currentVibG * mult * Math.exp(-Math.pow(dBPFO / 1.5, 2))
       ampG += peakAmp
     }
 
     // Bearing Inner Race Defect (BPFI) Peak
     const dBPFI = Math.abs(f - bpfiHz)
-    if (dBPFI < 2.5) {
+    if (dBPFI < 4.0) {
       const mult = healthStatus === 'critical' ? 0.50 : healthStatus === 'warning' ? 0.22 : 0.03
-      const peakAmp = currentVibG * mult * Math.exp(-Math.pow(dBPFI / 1.2, 2))
+      const peakAmp = currentVibG * mult * Math.exp(-Math.pow(dBPFI / 1.5, 2))
       ampG += peakAmp
     }
 
     // Convert Acceleration (g) to Vibration Velocity (mm/s RMS):
     // v = (a * 9806.65) / (2 * pi * f) in mm/s
-    const ampMms = f > 2 ? (ampG * 9806.65) / (2 * Math.PI * f) : 0
+    // Standard ISO 10816 10 Hz high-pass roll-off to eliminate low-frequency integration drift
+    const hpFilter = 1 / (1 + Math.pow(10 / Math.max(f, 0.5), 3))
+    const ampMms = f > 2 ? ((ampG * 9806.65) / (2 * Math.PI * f)) * hpFilter : 0
     amplitudes_g.push(Number(ampG.toFixed(4)))
     amplitudes_mms.push(Number(ampMms.toFixed(3)))
   }
@@ -92,7 +94,7 @@ export function computeVibrationDiagnostics(motor: MotorState): FFTSpectrumData 
   let sumSqVelocity = 0
   let countBand = 0
   for (let i = 0; i < frequencies.length; i++) {
-    if (frequencies[i] >= 10 && frequencies[i] <= 400) {
+    if (frequencies[i] >= 10 && frequencies[i] <= maxHz) {
       sumSqVelocity += Math.pow(amplitudes_mms[i], 2)
       countBand++
     }

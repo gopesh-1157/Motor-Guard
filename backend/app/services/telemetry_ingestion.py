@@ -5,11 +5,12 @@ Handles validated telemetry payload persistence into MongoDB with
 idempotent deduplication via compound unique index on (device_id, event_id).
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, OperationFailure
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from backend.app.config import settings
 
@@ -40,9 +41,14 @@ class TelemetryIngestionService:
         retention_seconds = int(settings.TELEMETRY_RETENTION_DAYS * 86400)
         try:
             if hasattr(self.collection, "index_information"):
-                info_fn = self.collection.index_information
-                import asyncio
-                existing_indexes = await info_fn() if asyncio.iscoroutinefunction(info_fn) else info_fn()
+                info_res = self.collection.index_information()
+                if asyncio.isfuture(info_res) or asyncio.iscoroutine(info_res):
+                    existing_indexes = await info_res
+                elif asyncio.iscoroutinefunction(self.collection.index_information):
+                    existing_indexes = await self.collection.index_information()
+                else:
+                    existing_indexes = info_res
+
                 if isinstance(existing_indexes, dict) and "idx_ttl_retention" in existing_indexes:
                     curr_expire = existing_indexes["idx_ttl_retention"].get("expireAfterSeconds")
                     if curr_expire != retention_seconds:
@@ -51,20 +57,38 @@ class TelemetryIngestionService:
                             curr_expire,
                             retention_seconds,
                         )
-                        drop_fn = getattr(self.collection, "drop_index", None)
-                        if drop_fn:
-                            if asyncio.iscoroutinefunction(drop_fn):
-                                await drop_fn("idx_ttl_retention")
-                            else:
-                                drop_fn("idx_ttl_retention")
+                        drop_res = self.collection.drop_index("idx_ttl_retention")
+                        if asyncio.isfuture(drop_res) or asyncio.iscoroutine(drop_res):
+                            await drop_res
         except Exception as exc:
             logger.debug("TTL index check/migration note: %s", exc)
 
-        await self.collection.create_index(
-            [("server_received_at", 1)],
-            name="idx_ttl_retention",
-            expireAfterSeconds=retention_seconds,
-        )
+        try:
+            await self.collection.create_index(
+                [("server_received_at", 1)],
+                name="idx_ttl_retention",
+                expireAfterSeconds=retention_seconds,
+            )
+        except OperationFailure as exc:
+            if exc.code == 85:  # IndexOptionsConflict
+                logger.warning(
+                    "IndexOptionsConflict on idx_ttl_retention (code 85); dropping and recreating index with expireAfterSeconds=%d",
+                    retention_seconds,
+                )
+                try:
+                    drop_res = self.collection.drop_index("idx_ttl_retention")
+                    if asyncio.isfuture(drop_res) or asyncio.iscoroutine(drop_res):
+                        await drop_res
+                    await self.collection.create_index(
+                        [("server_received_at", 1)],
+                        name="idx_ttl_retention",
+                        expireAfterSeconds=retention_seconds,
+                    )
+                except Exception as drop_exc:
+                    logger.error("Failed to drop and recreate idx_ttl_retention: %s", drop_exc)
+            else:
+                logger.warning("create_index idx_ttl_retention note: %s", exc)
+
         logger.info("Telemetry collection indexes ensured (TTL retention: %d seconds / %d days)", retention_seconds, settings.TELEMETRY_RETENTION_DAYS)
 
     async def ingest(self, payload: Dict[str, Any]) -> bool:

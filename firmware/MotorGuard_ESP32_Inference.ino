@@ -30,6 +30,8 @@
 // Check for local untracked secrets header (ignored in git)
 #if __has_include("secrets.h")
   #include "secrets.h"
+#elif __has_include("../secrets.h")
+  #include "../secrets.h"
 #endif
 
 // ============================================================
@@ -1079,6 +1081,8 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("\n[Wi-Fi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("[MQTT] Targeting local broker at %s:%d\n", MQTT_BROKER, MQTT_PORT);
+    configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+    Serial.println("[NTP] Initialized SNTP time synchronization (UTC).");
   } else {
     Serial.println("\n[Wi-Fi] WARNING: Failed to connect to station Wi-Fi. Verify SSID/password.");
   }
@@ -1097,6 +1101,8 @@ void setup() {
   }
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("\n[Wi-Fi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+    Serial.println("[NTP] Initialized SNTP time synchronization (UTC).");
   } else {
     Serial.println("\n[Wi-Fi] WARNING: Failed to connect to station Wi-Fi.");
   }
@@ -1264,3 +1270,4 @@ void loop() {
   delay(10);
 #endif
 }
+  

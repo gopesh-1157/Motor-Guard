@@ -356,11 +356,15 @@ async def test_saved_thresholds_drive_motor_health_status():
     mock_alerts_col.find_one = AsyncMock(return_value=None)  # No active alerts initially
 
     mock_telemetry_col = AsyncMock()
-    # Telemetry sensor reading 44.0°C exceeds saved warning (40.0°C) even though ML model said healthy
+    # Telemetry sensor reading 44.0°C exceeds saved warning (40.0°C), but Edge ML model says healthy
     last_telemetry = {
         "motor_id": "MTR-775-001",
+        "device_id": "esp32-node-001",
+        "server_received_at": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "sensors": {"temperature_c": 44.0, "current_a": 1.8, "vibration_g_rms": 0.06},
-        "inference": {"health_status": "healthy", "confidence": 0.94},
+        "sensor_status": {"temperature": "OK", "current": "OK", "vibration": "OK"},
+        "inference": {"status": "PREDICTED", "health_status": "healthy", "confidence": 0.94},
     }
     mock_telemetry_col.find_one = AsyncMock(return_value=last_telemetry)
 
@@ -383,13 +387,13 @@ async def test_saved_thresholds_drive_motor_health_status():
 
     service = MotorService(mock_db)
 
-    # 1. Motor health is dynamically computed as "warning" because 44.0°C >= saved 40.0°C
+    # 1. Edge ML prediction is authoritative: health is healthy (threshold does NOT override ML)
     motor_out = await service.get_motor("MTR-775-001")
     assert motor_out is not None
-    assert motor_out.health_status == "warning"
+    assert motor_out.health_status == "healthy"
 
-    # 2. When an active CRITICAL alert exists, motor health immediately reflects "critical"
-    mock_alerts_col.find_one = AsyncMock(return_value={"state": "ACTIVE", "severity": "CRITICAL"})
+    # 2. When an active CRITICAL ML alert exists, motor health immediately reflects "critical"
+    mock_alerts_col.find_one = AsyncMock(return_value={"state": "ACTIVE", "category": "ML_INFERENCE", "severity": "CRITICAL"})
     motor_out_crit = await service.get_motor("MTR-775-001")
     assert motor_out_crit is not None
     assert motor_out_crit.health_status == "critical"
@@ -817,10 +821,10 @@ async def test_alert_hysteresis_auto_resolution():
 @pytest.mark.asyncio
 async def test_stale_or_missing_telemetry_never_healthy():
     """
-    Task 5 Regression Test: Missing, disconnected, or stale telemetry is NEVER misrepresented as healthy.
+    Task 5 Regression Test: Missing, disconnected, or stale telemetry is NEVER misrepresented as healthy or faulty.
     - All null readings -> 'unknown'
-    - Disconnected current or vibration -> 'critical'
-    - Disconnected temperature -> 'warning'
+    - Disconnected current or vibration -> 'unknown' (diagnostic status, not a motor fault)
+    - Disconnected temperature -> 'unknown' (diagnostic status, not a motor fault)
     - Missing telemetry doc entirely -> defaults to asset doc status ('unknown')
     """
     from backend.app.services.motor_service import MotorService
@@ -835,20 +839,20 @@ async def test_stale_or_missing_telemetry_never_healthy():
     h1 = await service.calculate_motor_health("MTR-HEALTH-TEST", doc, null_telem)
     assert h1 == "unknown"
 
-    # 2. Disconnected current
+    # 2. Disconnected current -> unknown (never fake critical)
     disc_curr = {"sensors": {"temperature_c": 30.0, "current_a": None, "vibration_g_rms": 0.05}, "sensor_status": {"current": "DISCONNECTED"}}
     h2 = await service.calculate_motor_health("MTR-HEALTH-TEST", doc, disc_curr)
-    assert h2 == "critical"
+    assert h2 == "unknown"
 
-    # 3. Disconnected vibration
+    # 3. Disconnected vibration -> unknown (never fake critical)
     disc_vib = {"sensors": {"temperature_c": 30.0, "current_a": 1.0, "vibration_g_rms": None}, "sensor_status": {"vibration": "UNAVAILABLE"}}
     h3 = await service.calculate_motor_health("MTR-HEALTH-TEST", doc, disc_vib)
-    assert h3 == "critical"
+    assert h3 == "unknown"
 
-    # 4. Disconnected temperature
+    # 4. Disconnected temperature -> unknown (never fake warning)
     disc_temp = {"sensors": {"temperature_c": None, "current_a": 1.0, "vibration_g_rms": 0.05}, "sensor_status": {"temperature": "OUT_OF_RANGE"}}
     h4 = await service.calculate_motor_health("MTR-HEALTH-TEST", doc, disc_temp)
-    assert h4 == "warning"
+    assert h4 == "unknown"
 
     # 5. Missing telemetry doc
     h5 = await service.calculate_motor_health("MTR-HEALTH-TEST", doc, None)

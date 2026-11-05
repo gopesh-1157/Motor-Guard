@@ -52,7 +52,8 @@ export const MotorCard: FC<MotorCardProps> = ({ motor, onSelect }) => {
 
   const formatTimestamp = (iso: string) => {
     try {
-      const date = new Date(iso)
+      const normalized = !iso.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(iso) ? `${iso}Z` : iso
+      const date = new Date(normalized)
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     } catch {
       return iso
@@ -108,7 +109,7 @@ export const MotorCard: FC<MotorCardProps> = ({ motor, onSelect }) => {
               SIM NODE
             </span>
           ) : (
-            <span className="badge" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px', background: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.4)', color: 'var(--accent-primary)' }}>
+            <span className="badge" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '10px', background: 'var(--brand-primary-light)', borderColor: 'var(--brand-primary-ring)', color: 'var(--brand-primary)' }}>
               ESP32 HW
             </span>
           )}
@@ -163,7 +164,7 @@ export const MotorCard: FC<MotorCardProps> = ({ motor, onSelect }) => {
       <div className="iso-severity-scale" style={{ background: 'var(--bg-subtle)', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '9.5px', fontFamily: 'var(--scada-mono-font)' }}>
           <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>ISO 10816-3 SEVERITY</span>
-          <span style={{ fontWeight: 700, color: inference.health_status === 'critical' ? '#EF4444' : inference.health_status === 'warning' ? '#F59E0B' : '#10B981' }}>
+          <span style={{ fontWeight: 700, color: inference.health_status === 'critical' ? 'var(--status-critical)' : inference.health_status === 'warning' ? 'var(--status-warning)' : 'var(--status-healthy)' }}>
             {isoZoneLabel}
           </span>
         </div>
@@ -186,15 +187,15 @@ export const MotorCard: FC<MotorCardProps> = ({ motor, onSelect }) => {
       <div className="sparkline-section">
         <div className="sparkline-container">
           <div>
-            <Sparkline data={tempHistory} color="#f59e0b" label={`t-${latest.motor_id}`} />
+            <Sparkline data={tempHistory} color="var(--sensor-temp)" label={`t-${latest.motor_id}`} />
             <div className="sparkline-label" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '9px' }}>Temp (°C)</div>
           </div>
           <div>
-            <Sparkline data={currentHistory} color="#3b82f6" label={`c-${latest.motor_id}`} />
+            <Sparkline data={currentHistory} color="var(--sensor-curr)" label={`c-${latest.motor_id}`} />
             <div className="sparkline-label" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '9px' }}>Current (A)</div>
           </div>
           <div>
-            <Sparkline data={vibHistory} color="#a855f7" label={`v-${latest.motor_id}`} />
+            <Sparkline data={vibHistory} color="var(--sensor-vib)" label={`v-${latest.motor_id}`} />
             <div className="sparkline-label" style={{ fontFamily: 'var(--scada-mono-font)', fontSize: '9px' }}>Vibration (g)</div>
           </div>
         </div>

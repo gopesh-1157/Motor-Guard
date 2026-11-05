@@ -351,6 +351,7 @@ export interface TechnicianUser {
 }
 
 export interface UserProfile {
+  id?: string
   username: string
   role: UserRole
   email: string
@@ -369,7 +370,9 @@ export interface WorkOrderItem {
   id?: string
   work_order_id: string
   motor_id: string
+  site_id?: string | null
   alert_id?: string | null
+  assigned_to?: string | null
   assigned_to_user_id: string
   assigned_by_user_id: string
   priority: WorkOrderPriority
@@ -379,9 +382,12 @@ export interface WorkOrderItem {
   created_at: string
   assigned_at?: string | null
   accepted_at?: string | null
+  accepted_by?: string | null
   started_at?: string | null
   resolved_at?: string | null
   rejected_at?: string | null
+  reassigned_from_user_id?: string | null
+  reassigned_at?: string | null
   diagnosis?: string | null
   actions_taken?: string | null
   parts_replaced: string[]

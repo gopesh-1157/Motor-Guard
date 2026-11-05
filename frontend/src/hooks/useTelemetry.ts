@@ -84,6 +84,10 @@ export function useTelemetry(currentUser?: UserProfile | null) {
   const refreshMotors = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/motors', { headers: getAuthHeaders() })
+      if (res.status === 401) {
+        window.dispatchEvent(new CustomEvent('motorguard:unauthorized'))
+        return
+      }
       if (!res.ok) return
       const registeredList = await res.json()
       if (Array.isArray(registeredList)) {
@@ -173,12 +177,18 @@ export function useTelemetry(currentUser?: UserProfile | null) {
       return
     }
 
-    // Resolve WebSocket endpoint (prefers VITE_WS_URL in production, otherwise relative to current host)
-    const envWsUrl = (import.meta.env.VITE_WS_URL || '').trim()
+    // Resolve WebSocket endpoint (prefers VITE_WS_URL or VITE_WS_BASE_URL, otherwise relative to current host)
+    const rawWsUrl = (import.meta.env.VITE_WS_URL || import.meta.env.VITE_WS_BASE_URL || '').trim()
     let wsEndpoint = ''
-    if (envWsUrl) {
-      const cleanUrl = envWsUrl.replace(/\/+$/, '')
-      wsEndpoint = cleanUrl.endsWith('/ws/telemetry') ? cleanUrl : `${cleanUrl}/ws/telemetry`
+    if (rawWsUrl) {
+      const cleanUrl = rawWsUrl.replace(/\/+$/, '')
+      if (cleanUrl.endsWith('/ws/telemetry')) {
+        wsEndpoint = cleanUrl
+      } else if (cleanUrl.endsWith('/ws')) {
+        wsEndpoint = `${cleanUrl}/telemetry`
+      } else {
+        wsEndpoint = `${cleanUrl}/ws/telemetry`
+      }
     } else {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       wsEndpoint = `${protocol}//${window.location.host}/ws/telemetry`
@@ -436,10 +446,8 @@ export function useTelemetry(currentUser?: UserProfile | null) {
       const baseCurrent = 4.2 + Math.random() * 3.5
       const baseVib = 0.25 + Math.random() * 0.9
 
-      const isWarning = baseTemp > 65 || baseVib > 0.8
-      const isCritical = baseTemp > 75 || baseVib > 1.0
-
-      const health = isCritical ? 'critical' : isWarning ? 'warning' : 'healthy'
+      const health = overrides?.inference?.health_status || 'healthy'
+      const conf = overrides?.inference?.confidence ?? parseFloat((0.88 + Math.random() * 0.10).toFixed(3))
 
       const synthetic: TelemetryMessage = {
         schema_version: '1.0.0',
@@ -462,14 +470,14 @@ export function useTelemetry(currentUser?: UserProfile | null) {
         inference: {
           status: 'PREDICTED',
           health_status: health,
-          confidence: parseFloat((0.85 + Math.random() * 0.14).toFixed(3)),
+          confidence: conf,
           probabilities: {
-            healthy: health === 'healthy' ? 0.92 : 0.05,
-            warning: health === 'warning' ? 0.85 : 0.08,
-            critical: health === 'critical' ? 0.88 : 0.03,
+            healthy: health === 'healthy' ? 0.94 : 0.04,
+            warning: health === 'warning' ? 0.88 : 0.06,
+            critical: health === 'critical' ? 0.92 : 0.03,
           },
-          model_version: 'tflite-micro-v1.0.0',
-          inference_time_ms: Math.floor(12 + Math.random() * 8),
+          model_version: 'ei-motoguard-v1.0.1-simulated',
+          inference_time_ms: Math.floor(4 + Math.random() * 5),
         },
         diagnostics: {
           wifi_rssi_dbm: -58 - Math.floor(Math.random() * 15),

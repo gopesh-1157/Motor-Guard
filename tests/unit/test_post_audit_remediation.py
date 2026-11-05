@@ -114,7 +114,7 @@ class TestF01BoundaryConsistency:
 
     @pytest.mark.asyncio
     async def test_motor_service_health_exact_boundaries(self):
-        """Motor health classification evaluates exact boundaries identically."""
+        """Motor health classification is driven by Edge ML, not overridden by threshold boundaries."""
         mock_db = MagicMock()
         mock_col = AsyncMock()
         mock_col.find_one = AsyncMock(return_value=None)
@@ -133,7 +133,7 @@ class TestF01BoundaryConsistency:
             "peak_vibration_critical_g": 0.800,
         }
 
-        # Sub-warning readings -> healthy
+        # Sub-warning readings with healthy ML -> healthy
         h_below = await service.calculate_motor_health(
             motor_id="MTR-775-001",
             motor_doc={"motor_id": "MTR-775-001"},
@@ -142,40 +142,56 @@ class TestF01BoundaryConsistency:
         )
         assert h_below == "healthy"
 
-        # Exact warning readings -> warning
-        h_warn = await service.calculate_motor_health(
+        # Thresholds crossed but ML model is healthy -> ML health remains healthy (thresholds do not override)
+        h_warn_sensor = await service.calculate_motor_health(
             motor_id="MTR-775-001",
             motor_doc={"motor_id": "MTR-775-001"},
             last_telem=_make_telemetry({"current_a": 3.4, "temperature_c": 30.0, "vibration_g_rms": 0.05, "vibration_g_peak": 0.1}),
             effective_thresholds=thresholds,
         )
-        assert h_warn == "warning"
+        assert h_warn_sensor == "healthy"
 
-        # Exact critical reading -> critical
-        h_crit = await service.calculate_motor_health(
+        # Edge ML inference warning -> warning
+        telem_ml_warn = _make_telemetry({"current_a": 1.0, "temperature_c": 30.0, "vibration_g_rms": 0.05, "vibration_g_peak": 0.1})
+        telem_ml_warn["inference"] = {"status": "PREDICTED", "health_status": "warning", "confidence": 0.92}
+        h_warn_ml = await service.calculate_motor_health(
             motor_id="MTR-775-001",
             motor_doc={"motor_id": "MTR-775-001"},
-            last_telem=_make_telemetry({"current_a": 4.0, "temperature_c": 30.0, "vibration_g_rms": 0.05, "vibration_g_peak": 0.1}),
+            last_telem=telem_ml_warn,
             effective_thresholds=thresholds,
         )
-        assert h_crit == "critical"
+        assert h_warn_ml == "warning"
+
+        # Edge ML inference critical -> critical
+        telem_ml_crit = _make_telemetry({"current_a": 1.0, "temperature_c": 30.0, "vibration_g_rms": 0.05, "vibration_g_peak": 0.1})
+        telem_ml_crit["inference"] = {"status": "PREDICTED", "health_status": "critical", "confidence": 0.96}
+        h_crit_ml = await service.calculate_motor_health(
+            motor_id="MTR-775-001",
+            motor_doc={"motor_id": "MTR-775-001"},
+            last_telem=telem_ml_crit,
+            effective_thresholds=thresholds,
+        )
+        assert h_crit_ml == "critical"
 
 
 # ==============================================================================
-# F-02: Peak Shock in Motor Health Classification
+# F-02: Peak Shock in Safety Alerts and Edge ML Primacy
 # ==============================================================================
 
 class TestF02PeakShockHealthClassification:
-    """Verifies peak vibration shock affects health status even when RMS is normal."""
+    """Verifies peak vibration shock generates independent safety alerts without overriding ML health."""
 
     @pytest.mark.asyncio
     async def test_peak_shock_triggers_warning_and_critical_independently(self):
         mock_db = MagicMock()
         mock_col = AsyncMock()
         mock_col.find_one = AsyncMock(return_value=None)
+        mock_col.find_one_and_update = AsyncMock(return_value=None)
+        mock_col.insert_one = AsyncMock(return_value=MagicMock(inserted_id="alert-123"))
         mock_db.__getitem__.return_value = mock_col
 
         service = MotorService(mock_db)
+        alert_svc = AlertService(mock_db)
 
         thresholds = {
             "current_warning_a": 3.4,
@@ -187,33 +203,39 @@ class TestF02PeakShockHealthClassification:
             "peak_vibration_g": 0.350,
             "peak_vibration_critical_g": 0.800,
         }
+        alert_svc.get_effective_thresholds = AsyncMock(return_value=thresholds)
 
-        # RMS is low (0.020 g), but peak shock hits warning (0.350 g pk)
+        # 1. Peak shock hits warning (0.350 g pk): safety alert triggered, motor health remains ML-classified
+        telem_warn = _make_telemetry({"current_a": 1.0, "temperature_c": 30.0, "vibration_g_rms": 0.020, "vibration_g_peak": 0.350})
+        telem_warn["motor_id"] = "MTR-775-001"
+        telem_warn["device_id"] = "esp32-node-001"
         h_peak_warn = await service.calculate_motor_health(
             motor_id="MTR-775-001",
             motor_doc={"motor_id": "MTR-775-001"},
-            last_telem=_make_telemetry({"current_a": 1.0, "temperature_c": 30.0, "vibration_g_rms": 0.020, "vibration_g_peak": 0.350}),
+            last_telem=telem_warn,
             effective_thresholds=thresholds,
         )
-        assert h_peak_warn == "warning"
+        assert h_peak_warn == "healthy"
+        alerts_warn = await alert_svc.evaluate_telemetry_for_alerts(telem_warn)
+        peak_alerts = [a for a in alerts_warn if a.trigger_type == "THRESHOLD_HIGH_VIBRATION_PEAK"]
+        assert len(peak_alerts) == 1
+        assert peak_alerts[0].severity == "WARNING"
 
-        # RMS is low (0.020 g), but peak shock hits critical (0.800 g pk)
+        # 2. Peak shock hits critical (0.800 g pk): safety alert triggered
+        telem_crit = _make_telemetry({"current_a": 1.0, "temperature_c": 30.0, "vibration_g_rms": 0.020, "vibration_g_peak": 0.800})
+        telem_crit["motor_id"] = "MTR-775-001"
+        telem_crit["device_id"] = "esp32-node-001"
         h_peak_crit = await service.calculate_motor_health(
             motor_id="MTR-775-001",
             motor_doc={"motor_id": "MTR-775-001"},
-            last_telem=_make_telemetry({"current_a": 1.0, "temperature_c": 30.0, "vibration_g_rms": 0.020, "vibration_g_peak": 0.800}),
+            last_telem=telem_crit,
             effective_thresholds=thresholds,
         )
-        assert h_peak_crit == "critical"
-
-        # Alternate naming aliases (peak_shock_g, vibration_peak_g) supported
-        h_alias = await service.calculate_motor_health(
-            motor_id="MTR-775-001",
-            motor_doc={"motor_id": "MTR-775-001"},
-            last_telem=_make_telemetry({"current_a": 1.0, "temperature_c": 30.0, "vibration_g_rms": 0.020, "peak_shock_g": 0.850}),
-            effective_thresholds=thresholds,
-        )
-        assert h_alias == "critical"
+        assert h_peak_crit == "healthy"
+        alerts_crit = await alert_svc.evaluate_telemetry_for_alerts(telem_crit)
+        peak_crit_alerts = [a for a in alerts_crit if a.trigger_type == "THRESHOLD_HIGH_VIBRATION_PEAK"]
+        assert len(peak_crit_alerts) == 1
+        assert peak_crit_alerts[0].severity == "CRITICAL"
 
 
 # ==============================================================================
