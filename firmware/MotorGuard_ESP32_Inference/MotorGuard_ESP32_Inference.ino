@@ -893,74 +893,550 @@ void handleTelemetryApi() {
   server.send(200, "application/json", buildTelemetryJSON());
 }
 
+static const char PAGE_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MotorGuard — Edge AP Live SCADA</title>
+<style>
+:root{
+  --bg-dark:#080c14;
+  --bg-card:#0f172a;
+  --bg-subtle:#1e293b;
+  --border:#1e293b;
+  --border-focus:#0284c7;
+  --text-main:#f1f5f9;
+  --text-muted:#94a3b8;
+  --accent-cyan:#00f0ff;
+  --accent-amber:#f59e0b;
+  --accent-green:#10b981;
+  --accent-red:#ef4444;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg-dark);color:var(--text-main);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;line-height:1.5;}
+.container{max-width:1120px;margin:0 auto;}
+.header{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;margin-bottom:16px;flex-wrap:wrap;gap:12px;}
+.brand{display:flex;align-items:center;gap:12px;}
+.brand-logo{width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,#0284c7,#00f0ff);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;color:#04101e;box-shadow:0 0 16px rgba(0,240,255,0.35);}
+.brand-text h1{font-size:16px;font-weight:700;letter-spacing:0.02em;color:#fff;}
+.brand-text span{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);}
+.header-meta{display:flex;align-items:center;gap:12px;}
+.badge{padding:6px 14px;border-radius:9999px;font-weight:700;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;font-family:var(--font-mono);display:inline-flex;align-items:center;gap:6px;}
+.badge-dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block;}
+.badge-healthy{background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.4);}
+.badge-warning{background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);}
+.badge-critical{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.4);animation:pulse-red 1.2s infinite;}
+.badge-unknown{background:rgba(148,163,184,0.15);color:#94a3b8;border:1px solid rgba(148,163,184,0.3);}
+@keyframes pulse-red{0%,100%{opacity:1;}50%{opacity:0.6;}}
+.grid-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:16px;}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative;overflow:hidden;}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,240,255,0.4),transparent);}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.card-label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);font-family:var(--font-mono);}
+.card-value{font-size:32px;font-weight:800;font-family:var(--font-mono);color:#fff;display:flex;align-items:baseline;gap:4px;}
+.card-unit{font-size:14px;font-weight:500;color:var(--text-muted);}
+.card-footer{margin-top:8px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,0.05);padding-top:6px;}
+
+/* Graph Section */
+.graph-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;}
+.graph-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
+.graph-title{font-size:13px;font-weight:700;font-family:var(--font-mono);letter-spacing:0.04em;color:#fff;display:flex;align-items:center;gap:8px;}
+.graph-title::before{content:'';width:8px;height:8px;background:var(--accent-cyan);border-radius:2px;box-shadow:0 0 8px var(--accent-cyan);}
+.tabs{display:inline-flex;background:var(--bg-dark);padding:3px;border-radius:8px;border:1px solid var(--border);gap:2px;}
+.tab-btn{background:transparent;border:none;color:var(--text-muted);font-family:var(--font-mono);font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;cursor:pointer;transition:all 0.15s;}
+.tab-btn:hover{color:#fff;}
+.tab-btn.active{background:var(--bg-subtle);color:var(--accent-cyan);box-shadow:0 1px 4px rgba(0,0,0,0.4);}
+.canvas-wrap{position:relative;width:100%;height:220px;background:#05080f;border-radius:8px;border:1px solid rgba(255,255,255,0.05);overflow:hidden;}
+canvas{width:100%;height:100%;display:block;}
+.graph-stats{display:flex;justify-content:space-between;padding-top:10px;margin-top:8px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;font-family:var(--font-mono);color:var(--text-muted);flex-wrap:wrap;gap:10px;}
+.graph-stats span b{color:#fff;font-weight:600;}
+
+/* Two Column Row */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
+@media(max-width:768px){.two-col{grid-template-columns:1fr;}}
+
+/* Probabilities Progress Bars */
+.prob-item{margin-bottom:8px;}
+.prob-label{display:flex;justify-content:space-between;font-size:11px;font-family:var(--font-mono);margin-bottom:3px;color:var(--text-muted);}
+.prob-bar-bg{height:6px;background:var(--bg-dark);border-radius:3px;overflow:hidden;}
+.prob-bar-fill{height:100%;border-radius:3px;transition:width 0.4s ease;}
+
+/* Safety & Diagnostics */
+.diag-list{display:flex;flex-direction:column;gap:8px;font-size:12px;font-family:var(--font-mono);}
+.diag-item{display:flex;justify-content:space-between;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.04);}
+.diag-item span:first-child{color:var(--text-muted);}
+.diag-item span:last-child{color:#fff;font-weight:600;}
+
+/* Raw JSON Accordion */
+details{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:12px 16px;}
+summary{font-size:12px;font-weight:700;font-family:var(--font-mono);color:var(--text-muted);cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;}
+summary:hover{color:#fff;}
+pre{background:#05080f;padding:12px;border-radius:8px;font-size:11px;color:var(--accent-cyan);font-family:var(--font-mono);overflow-x:auto;max-height:240px;margin-top:10px;border:1px solid rgba(255,255,255,0.05);}
+.footer{text-align:center;color:#475569;font-size:11px;font-family:var(--font-mono);margin-top:20px;padding-top:12px;}
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <div class="brand-logo">MG</div>
+      <div class="brand-text">
+        <h1>MotorGuard &mdash; Edge Node AP</h1>
+        <span>DEVICE: esp32-node-001 | MOTOR: MTR-775-001</span>
+      </div>
+    </div>
+    <div class="header-meta">
+      <div id="ml-badge" class="badge badge-unknown">
+        <span class="badge-dot"></span>
+        <span id="ml-badge-text">CONNECTING...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real-time Metrics Grid -->
+  <div class="grid-metrics">
+    <!-- Vibration Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-label">Dynamic Vibration RMS</span>
+        <span id="vib-status" style="font-size:10px;font-family:var(--font-mono);color:var(--accent-cyan);">ADXL345</span>
+      </div>
+      <div class="card-value">
+        <span id="val-vib">--</span>
+        <span class="card-unit">g RMS</span>
+      </div>
+      <div class="card-footer">
+        <span>PEAK: <b id="val-vib-peak" style="color:#fff;">-- g</b></span>
+        <span>ISO-10816 CLASS I</span>
+      </div>
+    </div>
+
+    <!-- Current Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-label">Armature Current</span>
+        <span id="curr-calib-pill" style="font-size:10px;font-family:var(--font-mono);color:var(--accent-amber);">ACS712</span>
+      </div>
+      <div class="card-value">
+        <span id="val-curr">--</span>
+        <span class="card-unit">A</span>
+      </div>
+      <div class="card-footer">
+        <span>PEAK: <b id="val-curr-peak" style="color:#fff;">-- A</b></span>
+        <span>ZERO: <b id="val-curr-zero" style="color:#fff;">-- V</b></span>
+      </div>
+    </div>
+
+    <!-- Temperature Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-label">Ambient Temperature</span>
+        <span style="font-size:10px;font-family:var(--font-mono);color:var(--accent-green);">DHT11</span>
+      </div>
+      <div class="card-value">
+        <span id="val-temp">--</span>
+        <span class="card-unit">&deg;C</span>
+      </div>
+      <div class="card-footer">
+        <span>SENSOR: <b id="val-temp-status" style="color:#fff;">ONLINE</b></span>
+        <span>ALARM THRESH: 45&deg;C</span>
+      </div>
+    </div>
+
+    <!-- Edge AI Inference Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-label">TinyML Edge Impulse</span>
+        <span id="val-ei-time" style="font-size:10px;font-family:var(--font-mono);color:#38bdf8;">-- ms</span>
+      </div>
+      <div class="card-value">
+        <span id="val-conf">--</span>
+        <span class="card-unit">%</span>
+      </div>
+      <div class="card-footer">
+        <span>INFERENCE: <b id="val-ei-status" style="color:#fff;">--</b></span>
+        <span>TOP: <b id="val-ei-class" style="color:var(--accent-cyan);">--</b></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real-Time Telemetry Graph -->
+  <div class="graph-card">
+    <div class="graph-header">
+      <div class="graph-title">REAL-TIME TELEMETRY WAVEFORM (30s BUFFER)</div>
+      <div class="tabs">
+        <button class="tab-btn active" onclick="setGraphChannel('vib')">Vibration (g)</button>
+        <button class="tab-btn" onclick="setGraphChannel('curr')">Current (A)</button>
+        <button class="tab-btn" onclick="setGraphChannel('temp')">Temperature (&deg;C)</button>
+        <button class="tab-btn" onclick="setGraphChannel('all')">Multi-Channel</button>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="telemetryCanvas"></canvas>
+    </div>
+    <div class="graph-stats">
+      <span>CHANNEL: <b id="stat-chan" style="color:var(--accent-cyan);">VIBRATION RMS</b></span>
+      <span>CURRENT: <b id="stat-curr">--</b></span>
+      <span>MIN: <b id="stat-min">--</b></span>
+      <span>MAX: <b id="stat-max">--</b></span>
+      <span>MEAN: <b id="stat-mean">--</b></span>
+    </div>
+  </div>
+
+  <!-- Row: TinyML Probabilities + Safety/Diagnostics -->
+  <div class="two-col">
+    <!-- Edge Impulse Class Probabilities -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-label">TinyML Health Probabilities</span>
+        <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-muted);">ei-motoguard-v1.0.2</span>
+      </div>
+      <div style="margin-top:12px;">
+        <div class="prob-item">
+          <div class="prob-label"><span>HEALTHY (NOMINAL)</span><span id="prob-healthy-pct">0%</span></div>
+          <div class="prob-bar-bg"><div id="prob-healthy-bar" class="prob-bar-fill" style="width:0%;background:#10b981;"></div></div>
+        </div>
+        <div class="prob-item">
+          <div class="prob-label"><span>WARNING (DEGRADED)</span><span id="prob-warning-pct">0%</span></div>
+          <div class="prob-bar-bg"><div id="prob-warning-bar" class="prob-bar-fill" style="width:0%;background:#f59e0b;"></div></div>
+        </div>
+        <div class="prob-item">
+          <div class="prob-label"><span>CRITICAL (FAULT/TRIP)</span><span id="prob-critical-pct">0%</span></div>
+          <div class="prob-bar-bg"><div id="prob-critical-bar" class="prob-bar-fill" style="width:0%;background:#ef4444;"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Safety Interlock & Node Diagnostics -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-label">Safety Interlock & System Health</span>
+        <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-muted);">IEC 61508 / ISO 10816</span>
+      </div>
+      <div class="diag-list" style="margin-top:8px;">
+        <div class="diag-item">
+          <span>Interlock State</span>
+          <span id="diag-safety-state" style="color:#34d399;">--</span>
+        </div>
+        <div class="diag-item">
+          <span>Active Safety Reasons</span>
+          <span id="diag-safety-reasons" style="color:var(--text-muted);">None</span>
+        </div>
+        <div class="diag-item">
+          <span>ACS712 Calibration</span>
+          <span id="diag-calib-status">--</span>
+        </div>
+        <div class="diag-item">
+          <span>ESP32 Free Heap</span>
+          <span id="diag-free-heap">-- KB</span>
+        </div>
+        <div class="diag-item">
+          <span>Uptime</span>
+          <span id="diag-uptime">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Raw JSON Inspector Accordion -->
+  <details>
+    <summary>
+      <span>TELEMETRY CONTRACT JSON (V1.0.0)</span>
+      <span style="font-weight:400;font-size:11px;">Click to expand</span>
+    </summary>
+    <pre id="raw-json">// Awaiting live telemetry frame...</pre>
+  </details>
+
+  <!-- Footer -->
+  <div class="footer">
+    ESP32 MotorGuard Embedded Access Point &bull; SoftAP IP: 192.168.4.1 &bull; Port 80 &bull; Auto-refresh 1000ms
+  </div>
+</div>
+
+<script>
+// Rolling Telemetry History Buffer (30 points)
+const MAX_POINTS = 30;
+const history = {
+  times: [],
+  vib: [],
+  curr: [],
+  temp: []
+};
+
+let activeChannel = 'vib'; // 'vib', 'curr', 'temp', 'all'
+
+function setGraphChannel(chan) {
+  activeChannel = chan;
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  event.target.classList.add('active');
+  const labelMap = { vib: 'VIBRATION RMS', curr: 'ARMATURE CURRENT', temp: 'AMBIENT TEMP', all: 'MULTI-CHANNEL' };
+  document.getElementById('stat-chan').innerText = labelMap[chan] || chan.toUpperCase();
+  drawGraph();
+}
+
+// Canvas Setup
+const canvas = document.getElementById('telemetryCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+}
+window.addEventListener('resize', () => { resizeCanvas(); drawGraph(); });
+resizeCanvas();
+
+function drawGraph() {
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  ctx.clearRect(0, 0, w, h);
+
+  if (history.vib.length === 0) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('WAITING FOR FIRST TELEMETRY FRAME...', w / 2, h / 2);
+    return;
+  }
+
+  const padLeft = 46;
+  const padRight = 14;
+  const padTop = 18;
+  const padBottom = 26;
+  const chartW = w - padLeft - padRight;
+  const chartH = h - padTop - padBottom;
+
+  // Compute dynamic scale based on activeChannel
+  let minVal = 0;
+  let maxVal = 1;
+  let unit = '';
+  let seriesList = [];
+
+  if (activeChannel === 'vib') {
+    seriesList = [{ data: history.vib, color: '#00f0ff', fill: 'rgba(0, 240, 255, 0.12)' }];
+    const vals = history.vib.filter(v => v !== null);
+    maxVal = Math.max(0.2, ...(vals.length ? vals : [0.2])) * 1.25;
+    unit = 'g';
+  } else if (activeChannel === 'curr') {
+    seriesList = [{ data: history.curr, color: '#f59e0b', fill: 'rgba(245, 158, 11, 0.12)' }];
+    const vals = history.curr.filter(v => v !== null);
+    maxVal = Math.max(1.0, ...(vals.length ? vals : [1.0])) * 1.25;
+    unit = 'A';
+  } else if (activeChannel === 'temp') {
+    seriesList = [{ data: history.temp, color: '#10b981', fill: 'rgba(16, 185, 129, 0.12)' }];
+    const vals = history.temp.filter(v => v !== null);
+    minVal = Math.max(0, Math.min(20, ...(vals.length ? vals : [20])) - 5);
+    maxVal = Math.max(40, ...(vals.length ? vals : [40])) + 5;
+    unit = '°C';
+  } else {
+    // Multi-channel normalize to 0..100% or multi-line
+    seriesList = [
+      { data: history.vib.map(v => v !== null ? v * 20 : 0), color: '#00f0ff' }, // scaled 5g = 100%
+      { data: history.curr.map(c => c !== null ? c * 20 : 0), color: '#f59e0b' }, // scaled 5A = 100%
+      { data: history.temp.map(t => t !== null ? t * 1.5 : 0), color: '#10b981' } // scaled 66C = 100%
+    ];
+    minVal = 0;
+    maxVal = 100;
+    unit = '%';
+  }
+
+  // Draw Grid Lines (4 horizontal divisions)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+  ctx.lineWidth = 1;
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'right';
+
+  const gridSteps = 4;
+  for (let i = 0; i <= gridSteps; i++) {
+    const y = padTop + (chartH / gridSteps) * i;
+    const val = maxVal - ((maxVal - minVal) / gridSteps) * i;
+    ctx.beginPath();
+    ctx.moveTo(padLeft, y);
+    ctx.lineTo(w - padRight, y);
+    ctx.stroke();
+    ctx.fillText(val.toFixed(val < 1 ? 2 : 1) + unit, padLeft - 6, y + 3);
+  }
+
+  // Draw Time Markers on X Axis
+  ctx.textAlign = 'center';
+  ctx.fillText('-30s', padLeft, h - 8);
+  ctx.fillText('-15s', padLeft + chartW / 2, h - 8);
+  ctx.fillText('Now', w - padRight - 8, h - 8);
+
+  // Render Series
+  seriesList.forEach(series => {
+    const pts = series.data;
+    if (pts.length < 2) return;
+
+    ctx.beginPath();
+    let first = true;
+    for (let i = 0; i < pts.length; i++) {
+      const v = pts[i];
+      if (v === null) continue;
+      const x = padLeft + (i / (MAX_POINTS - 1)) * chartW;
+      const normY = (v - minVal) / (maxVal - minVal || 1);
+      const y = padTop + (1 - Math.max(0, Math.min(1, normY))) * chartH;
+
+      if (first) {
+        ctx.moveTo(x, y);
+        first = false;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+
+    ctx.strokeStyle = series.color;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = series.color;
+    ctx.shadowBlur = 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Fill underneath if single channel
+    if (series.fill) {
+      ctx.lineTo(padLeft + ((pts.length - 1) / (MAX_POINTS - 1)) * chartW, padTop + chartH);
+      ctx.lineTo(padLeft, padTop + chartH);
+      ctx.closePath();
+      ctx.fillStyle = series.fill;
+      ctx.fill();
+    }
+  });
+
+  // Update Stats Strip
+  if (activeChannel !== 'all') {
+    const vals = (activeChannel === 'vib' ? history.vib : activeChannel === 'curr' ? history.curr : history.temp).filter(v => v !== null);
+    if (vals.length > 0) {
+      const cur = vals[vals.length - 1];
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const d = activeChannel === 'vib' ? 3 : activeChannel === 'curr' ? 2 : 1;
+      document.getElementById('stat-curr').innerText = cur.toFixed(d) + ' ' + unit;
+      document.getElementById('stat-min').innerText = min.toFixed(d) + ' ' + unit;
+      document.getElementById('stat-max').innerText = max.toFixed(d) + ' ' + unit;
+      document.getElementById('stat-mean').innerText = mean.toFixed(d) + ' ' + unit;
+    }
+  } else {
+    document.getElementById('stat-curr').innerText = 'MULTI';
+    document.getElementById('stat-min').innerText = '--';
+    document.getElementById('stat-max').innerText = '--';
+    document.getElementById('stat-mean').innerText = '--';
+  }
+}
+
+// Periodic Telemetry Poll
+async function pollTelemetry() {
+  try {
+    const res = await fetch('/api/telemetry');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+
+    // 1. Update Metrics Cards
+    const temp = d.sensors?.temperature_c ?? null;
+    const curr = d.sensors?.current_a ?? null;
+    const currPeak = d.sensors?.current_peak_a ?? null;
+    const vib = d.sensors?.vibration_g_rms ?? null;
+    const vibPeak = d.sensors?.vibration_g_peak ?? null;
+
+    document.getElementById('val-temp').innerText = temp !== null ? temp.toFixed(1) : '--';
+    document.getElementById('val-curr').innerText = curr !== null ? curr.toFixed(2) : '--';
+    document.getElementById('val-curr-peak').innerText = (currPeak !== null ? currPeak.toFixed(2) : '--') + ' A';
+    document.getElementById('val-curr-zero').innerText = (d.sensor_status?.current_zero_offset_v ? d.sensor_status.current_zero_offset_v.toFixed(3) : '2.500') + ' V';
+    document.getElementById('val-vib').innerText = vib !== null ? vib.toFixed(3) : '--';
+    document.getElementById('val-vib-peak').innerText = (vibPeak !== null ? vibPeak.toFixed(3) : '--') + ' g';
+    document.getElementById('val-temp-status').innerText = d.sensor_status?.temperature || 'ONLINE';
+
+    // Current Calibration indicator
+    const isCalib = d.sensor_status?.current_calibrated;
+    const calibPill = document.getElementById('curr-calib-pill');
+    calibPill.innerText = isCalib ? 'ACS712 (CALIBRATED)' : 'ACS712 (NOMINAL)';
+    calibPill.style.color = isCalib ? '#34d399' : '#f59e0b';
+
+    // Edge Impulse
+    const conf = d.inference?.confidence ?? 0;
+    const health = d.inference?.health_status || 'unknown';
+    document.getElementById('val-conf').innerText = (conf * 100).toFixed(0);
+    document.getElementById('val-ei-time').innerText = (d.inference?.inference_time_ms ?? 0) + ' ms';
+    document.getElementById('val-ei-status').innerText = d.inference?.status || 'OK';
+    document.getElementById('val-ei-class').innerText = health.toUpperCase();
+
+    // Badge
+    const badge = document.getElementById('ml-badge');
+    const badgeText = document.getElementById('ml-badge-text');
+    badgeText.innerText = 'HEALTH: ' + health.toUpperCase() + ' (' + (conf * 100).toFixed(0) + '%)';
+    badge.className = 'badge badge-' + health;
+
+    // Probabilities
+    const probs = d.inference?.probabilities || {};
+    const hPct = ((probs.healthy ?? (health === 'healthy' ? 1 : 0)) * 100).toFixed(0);
+    const wPct = ((probs.warning ?? (health === 'warning' ? 1 : 0)) * 100).toFixed(0);
+    const cPct = ((probs.critical ?? (health === 'critical' ? 1 : 0)) * 100).toFixed(0);
+
+    document.getElementById('prob-healthy-pct').innerText = hPct + '%';
+    document.getElementById('prob-healthy-bar').style.width = hPct + '%';
+    document.getElementById('prob-warning-pct').innerText = wPct + '%';
+    document.getElementById('prob-warning-bar').style.width = wPct + '%';
+    document.getElementById('prob-critical-pct').innerText = cPct + '%';
+    document.getElementById('prob-critical-bar').style.width = cPct + '%';
+
+    // Safety & Diagnostics
+    const safetyState = d.safety?.status || 'NORMAL';
+    const safetyEl = document.getElementById('diag-safety-state');
+    safetyEl.innerText = safetyState;
+    safetyEl.style.color = safetyState === 'NORMAL' ? '#34d399' : safetyState === 'WARNING' ? '#fbbf24' : '#f87171';
+
+    const reasons = d.safety?.active_reasons;
+    document.getElementById('diag-safety-reasons').innerText = (Array.isArray(reasons) && reasons.length > 0) ? reasons.join(', ') : 'None (All Clear)';
+    document.getElementById('diag-calib-status').innerText = isCalib ? 'Auto-zero locked' : 'Default reference';
+    document.getElementById('diag-free-heap').innerText = d.diagnostics?.free_heap_bytes ? (d.diagnostics.free_heap_bytes / 1024).toFixed(1) + ' KB' : '-- KB';
+
+    const upSec = d.diagnostics?.uptime_seconds ?? 0;
+    const hrs = Math.floor(upSec / 3600);
+    const mins = Math.floor((upSec % 3600) / 60);
+    const secs = upSec % 60;
+    document.getElementById('diag-uptime').innerText = hrs + 'h ' + mins + 'm ' + secs + 's';
+
+    // Raw JSON
+    document.getElementById('raw-json').innerText = JSON.stringify(d, null, 2);
+
+    // 2. Append to Graph Buffer
+    history.times.push(new Date().toLocaleTimeString());
+    history.vib.push(vib);
+    history.curr.push(curr);
+    history.temp.push(temp);
+
+    if (history.vib.length > MAX_POINTS) {
+      history.times.shift();
+      history.vib.shift();
+      history.curr.shift();
+      history.temp.shift();
+    }
+
+    drawGraph();
+
+  } catch (err) {
+    console.warn('Telemetry fetch error:', err);
+    const badgeText = document.getElementById('ml-badge-text');
+    badgeText.innerText = 'AP DISCONNECTED';
+    document.getElementById('ml-badge').className = 'badge badge-unknown';
+  }
+}
+
+setInterval(pollTelemetry, 1000);
+pollTelemetry();
+</script>
+</body>
+</html>)rawliteral";
+
 void handleRoot() {
-  String html = F(
-    "<!DOCTYPE html>"
-    "<html lang='en'>"
-    "<head>"
-    "<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'>"
-    "<title>MotorGuard Edge AP Dashboard</title>"
-    "<style>"
-    "body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0b0f19;color:#e2e8f0;padding:20px;}"
-    ".header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e293b;padding-bottom:15px;margin-bottom:20px;}"
-    ".badge{padding:6px 14px;border-radius:9999px;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:1px;}"
-    ".badge-healthy{background:#064e3b;color:#34d399;border:1px solid #059669;}"
-    ".badge-warning{background:#78350f;color:#fbbf24;border:1px solid #d97706;}"
-    ".badge-critical{background:#7f1d1d;color:#f87171;border:1px solid #dc2626;}"
-    ".badge-unknown{background:#374151;color:#9ca3af;}"
-    ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:20px;}"
-    ".card{background:#131c2e;border:1px solid #1e293b;border-radius:12px;padding:20px;}"
-    ".label{color:#94a3b8;font-size:12px;text-transform:uppercase;margin-bottom:8px;letter-spacing:0.5px;}"
-    ".val{font-size:32px;font-weight:700;color:#f8fafc;}"
-    ".unit{font-size:16px;color:#64748b;font-weight:400;margin-left:4px;}"
-    ".footer{color:#64748b;font-size:12px;text-align:center;margin-top:20px;}"
-    "</style>"
-    "</head>"
-    "<body>"
-    "<div class='header'>"
-    "<div>"
-    "<h2 style='margin:0;color:#38bdf8;'>MotorGuard — Edge AP</h2>"
-    "<span style='color:#64748b;font-size:12px;'>Motor: MTR-775-001 | Node: esp32-node-001</span>"
-    "</div>"
-    "<div id='badge' class='badge badge-unknown'>INITIALIZING...</div>"
-    "</div>"
-    "<div class='grid'>"
-    "<div class='card'><div class='label'>Ambient Air Temp (DHT11)</div><div class='val' id='temp'>--<span class='unit'>&deg;C</span></div></div>"
-    "<div class='card'><div class='label'>Armature Current</div><div class='val' id='curr'>--<span class='unit'>A</span></div></div>"
-    "<div class='card'><div class='label'>Dynamic Vibration RMS</div><div class='val' id='vib'>--<span class='unit'>g</span></div></div>"
-    "<div class='card'><div class='label'>TinyML Confidence</div><div class='val' id='conf'>--<span class='unit'>%</span></div></div>"
-    "</div>"
-    "<div class='grid' style='margin-bottom:20px;'>"
-    "<div class='card'><div class='label'>Rule Safety State</div><div class='val' id='safety-state' style='font-size:20px;'>--</div></div>"
-    "<div class='card'><div class='label'>Current Sensor Calibration</div><div class='val' id='calib-state' style='font-size:20px;'>--</div></div>"
-    "</div>"
-    "<div class='card'>"
-    "<div class='label'>Live Telemetry JSON Contract (v1.0.0)</div>"
-    "<pre id='raw' style='color:#38bdf8;background:#090d16;padding:12px;border-radius:8px;font-size:12px;overflow-x:auto;max-height:220px;'></pre>"
-    "</div>"
-    "<div class='footer'>ESP32 SoftAP IP: 192.168.4.1 | Auto-refreshing every 1 second</div>"
-    "<script>"
-    "async function update(){"
-    " try{"
-    "  const res = await fetch('/api/telemetry');"
-    "  const d = await res.json();"
-    "  document.getElementById('temp').innerHTML = (d.sensors.temperature_c !== null ? d.sensors.temperature_c.toFixed(1) : 'DISCONNECTED') + '<span class=\"unit\">&deg;C</span>';"
-    "  document.getElementById('curr').innerHTML = (d.sensors.current_a !== null ? d.sensors.current_a.toFixed(2) : 'DISCONNECTED') + '<span class=\"unit\">A</span>';"
-    "  document.getElementById('vib').innerHTML = (d.sensors.vibration_g_rms !== null ? d.sensors.vibration_g_rms.toFixed(3) : 'DISCONNECTED') + '<span class=\"unit\">g</span>';"
-    "  document.getElementById('conf').innerHTML = (d.inference.confidence * 100).toFixed(0) + '<span class=\"unit\">%</span>';"
-    "  const b = document.getElementById('badge');"
-    "  b.innerText = 'ML HEALTH: ' + d.inference.health_status.toUpperCase() + ' (' + (d.inference.confidence * 100).toFixed(0) + '%)';"
-    "  b.className = 'badge badge-' + d.inference.health_status;"
-    "  document.getElementById('safety-state').innerText = (d.safety ? d.safety.status + ' (' + d.safety.active_reasons.join(', ') + ')' : 'UNKNOWN');"
-    "  document.getElementById('calib-state').innerText = (d.sensor_status.current_calibrated ? 'CALIBRATED (' + d.sensor_status.current_zero_offset_v.toFixed(3) + ' V)' : 'UNCALIBRATED (NOMINAL 2.5V)');"
-    "  document.getElementById('raw').innerText = JSON.stringify(d, null, 2);"
-    " }catch(e){console.error(e);}"
-    "}"
-    "setInterval(update, 1000); update();"
-    "</script>"
-    "</body></html>"
-  );
-  server.send(200, "text/html", html);
+  server.send_P(200, "text/html", PAGE_HTML);
 }
 
 // ============================================================
